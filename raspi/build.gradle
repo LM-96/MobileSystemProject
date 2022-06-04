@@ -49,7 +49,9 @@ dependencies {
     implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core-jvm', version: '1.6.2'
 
     /* BLUETOOTH ************************************************************** */
-    implementation 'dev.bluefalcon:blue-falcon-rpi:0.10.6'
+    implementation 'dev.bluefalcon:blue-falcon-rpi:0.10.7'
+    implementation 'dev.bluefalcon:blue-falcon:0.10.7'
+    implementation 'com.github.weliem:blessed-android:2.0.7'
 
 
 }

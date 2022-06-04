@@ -5,7 +5,7 @@ import android.bluetooth.BluetoothManager
 class BluetoothManager {
 
     fun start() {
-        
+
     }
 
 }

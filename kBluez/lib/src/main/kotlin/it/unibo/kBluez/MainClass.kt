@@ -1,5 +1,7 @@
 package it.unibo.kBluez
 
+import java.util.UUID
+
 fun main(args : Array<String>) {
 
     var line : String
@@ -20,9 +22,25 @@ fun main(args : Array<String>) {
             }
 
             "lookup" -> {
-                print("Address: ")
+                print("\tAddress: ")
                 line = readln()
                 println(kbluez.lookup(line))
+            }
+
+            "find_services" -> {
+                print("\tName (enter for null): ")
+                line = readln().trim()
+                val name = if(line.isBlank()) null else line
+
+                print("\tUUID (enter for null): ")
+                line = readln().trim()
+                val uuid = if(line.isBlank()) null else UUID.fromString(line)
+
+                print("\tAddress (enter for null): ")
+                line = readln().trim()
+                val address = if(line.isBlank()) null else line
+
+                println(kbluez.findServices(name, uuid, address))
             }
 
             "terminate" -> {

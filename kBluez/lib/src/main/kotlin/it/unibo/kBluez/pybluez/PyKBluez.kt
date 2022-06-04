@@ -2,6 +2,7 @@ package it.unibo.kBluez.pybluez
 
 import it.unibo.kBluez.KBluez
 import it.unibo.kBluez.model.BluetoothDevice
+import it.unibo.kBluez.model.BluetoothService
 import mu.KLogger
 import mu.KotlinLogging
 import java.io.InputStream
@@ -63,6 +64,15 @@ class PyKBluez() : KBluez {
             log.catching(pwe)
             Optional.empty()
         }
+    }
+
+    override fun findServices(name : String?, uuid : UUID?, address : String?): List<BluetoothService> {
+        log.info("findServices()")
+        output.writeFindServicesCommand(name, uuid, address)
+        val res = input.readFindServicesResult()
+        log.info("find services result = $res")
+
+        return res
     }
 
     override fun close() {

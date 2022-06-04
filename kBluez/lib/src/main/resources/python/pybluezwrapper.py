@@ -23,7 +23,15 @@ def lookup(msg) :
         device = bluetooth.lookup_name(address)
         print(json.dumps({"lookup_res" : device}))
     except bluetooth.btcommon.BluetoothError as e:
-        print(json.dumps({"lookup_res" : NULL, "errName" : e.name, "errArgs" : e.args}))
+        print(json.dumps({"lookup_res" : None, "errName" : e.name, "errArgs" : e.args}))
+
+def findServices(msg):
+    updateState("FINDING_SERVICES")
+    name = msg["name"]
+    uuid = msg["uuid"]
+    address = msg["address"]
+    print(json.dumps({"find_services_res" : bluetooth.find_service(name, uuid, address)}))
+
 
 
 hasToTerminate = False
@@ -32,6 +40,7 @@ while(not hasToTerminate):
     rawMsg = input()
     try:
         msg = json.loads(rawMsg)
+        print(json.dumps({"info":"msg="+msg}))
         cmd = msg["cmd"]
 
         if(cmd == "scan"):
@@ -39,6 +48,9 @@ while(not hasToTerminate):
 
         elif(cmd == "lookup"):
             lookup(msg)
+
+        elif(cmd == "find_services"):
+            findServices(msg)
 
         elif(cmd == "terminate"):
             hasToTerminate = True

@@ -1,12 +1,22 @@
 #! /usr/bin/python3
+import string
+import traceback
 import json
+import sys
 import bluetooth
 
-def updateState(state):
+def updateState(state : string):
     print(json.dumps({"state" : state}))
 
-def printErr(errDesc):
-    print(json.dumps({"err" : errDesc}))
+def printErr(errDesc : string):
+    print(json.dumps({"err" : errDesc}), file=sys.stderr)
+
+def getOrNone(dict, key):
+    if(key in dict):
+        return dict[key]
+    else:
+        return None
+
 
 def scan():
     updateState("SCANNING")
@@ -27,39 +37,44 @@ def lookup(msg) :
 
 def findServices(msg):
     updateState("FINDING_SERVICES")
-    name = msg["name"]
-    uuid = msg["uuid"]
-    address = msg["address"]
+
+    name = getOrNone(msg, "nanem")
+    uuid = getOrNone(msg, "uuid")
+    address = getOrNone(msg, "address")
     print(json.dumps({"find_services_res" : bluetooth.find_service(name, uuid, address)}))
 
 
+try:
+    hasToTerminate = False
+    while(not hasToTerminate):
+        updateState("IDLE")
+        rawMsg = input()
+        try:
+            msg = json.loads(rawMsg)
+            cmd = msg["cmd"]
 
-hasToTerminate = False
-while(not hasToTerminate):
-    updateState("IDLE")
-    rawMsg = input()
-    try:
-        msg = json.loads(rawMsg)
-        print(json.dumps({"info":"msg="+msg}))
-        cmd = msg["cmd"]
+            if(cmd == "scan"):
+                scan()
 
-        if(cmd == "scan"):
-            scan()
+            elif(cmd == "lookup"):
+                lookup(msg)
 
-        elif(cmd == "lookup"):
-            lookup(msg)
+            elif(cmd == "find_services"):
+                findServices(msg)
 
-        elif(cmd == "find_services"):
-            findServices(msg)
+            elif(cmd == "terminate"):
+                hasToTerminate = True
 
-        elif(cmd == "terminate"):
-            hasToTerminate = True
+            elif(cmd == "ensure_idle"):
+                updateState("IDLE")
 
-        else:
-            print(json.dumps({"err" : "Unsupported Operation"}))
+            else:
+                print(json.dumps({"err" : "Unsupported Operation"}))
 
 
-    except (ValueError, AttributeError) as e:
-        printErr(e.args)
+        except (ValueError, AttributeError) as e:
+            printErr(e.args)
 
-updateState("TERMINATED")
+    updateState("TERMINATED")
+except Exception as e:
+    printErr(traceback.format_exc())

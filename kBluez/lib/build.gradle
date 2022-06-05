@@ -39,9 +39,9 @@ dependencies {
 
     /* COROUTINES *********************************************************************** */
     // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core
-    //implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core', version: "$coroutineVer", ext: 'pom'
+    implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core', version: "$coroutineVer", ext: 'pom'
     // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core-jvm
-    //implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core-jvm', version: "$coroutineVer"
+    implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core-jvm', version: "$coroutineVer"
 
     /* JSON ***************************************************************************** */
     // https://mvnrepository.com/artifact/com.google.code.gson/gson
@@ -53,6 +53,10 @@ dependencies {
     implementation group: 'io.github.microutils', name: 'kotlin-logging-jvm', version: "$kotlinLoggingVer"
     // https://mvnrepository.com/artifact/ch.qos.logback/logback-classic
     implementation group: 'ch.qos.logback', name: 'logback-classic', version: "$logbackVer"
+
+    /* APACHE COMMONS IO **************************************************************** */
+    // https://mvnrepository.com/artifact/commons-io/commons-io
+    implementation group: 'commons-io', name: 'commons-io', version: '2.11.0'
 
 
     // Use the Kotlin test library.

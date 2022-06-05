@@ -8,7 +8,7 @@ data class BluetoothService(
     val port : Int?,
     val name : String?,
     val provider : String?,
-    val serviceClasses : UUID?,
-    val profiles : List<BluetoothServiceProfile> = mutableListOf(),
+    val serviceClasses : List<String> = listOf(),
+    val profiles : List<BluetoothServiceProfile> = listOf(),
     val serviceId : String? = null
 )

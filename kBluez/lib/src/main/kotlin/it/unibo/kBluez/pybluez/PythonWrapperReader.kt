@@ -2,163 +2,94 @@ package it.unibo.kBluez.pybluez
 
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
-import it.unibo.kBluez.model.BluetoothDevice
-import it.unibo.kBluez.model.BluetoothService
-import it.unibo.kBluez.model.BluetoothServiceProfile
-import it.unibo.kBluez.model.BluetoothServiceProtocol
+import com.google.gson.JsonSyntaxException
+import it.unibo.kBluez.model.*
+import it.unibo.kBluez.utils.addLevelTab
+import it.unibo.kBluez.utils.availableText
+import it.unibo.kBluez.utils.getNullable
+import it.unibo.kBluez.utils.stringReceiveChannel
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
+import java.time.LocalDate
 import java.util.*
 
-class PythonWrapperReader(private val wrapperProcess: Process) {
+class PythonWrapperReader(
+    private val wrapperProcess: Process,
+    private val scope : CoroutineScope = GlobalScope
+) {
 
-    private val reader = wrapperProcess.inputStream.bufferedReader()
+    private val pIn = Channel<String>()
+    private val pErr = wrapperProcess.errorStream.stringReceiveChannel(scope)
     private val log = KotlinLogging.logger(javaClass.simpleName + "[PID=${wrapperProcess.pid()}]")
 
-    fun readState() : PythonWrapperState {
-        var jsonEl : JsonElement
-        var jsonObj : JsonObject
-        var res : PythonWrapperState? = null
-
-        while(res == null) {
-            try {
-                jsonEl = jRead()
-                if(jsonEl.isJsonObject) {
-                    jsonObj = jsonEl.asJsonObject
-                    if (jsonObj.has("state"))
-                        res = PythonWrapperState.valueOf(jsonObj.get("status").asString.uppercase())
-                }
-            } catch (e : Exception) {
-                log.catching(e)
-                //Simply ignore the readed value
-            }
-        }
-
-        return res
+    suspend fun readState() : PythonWrapperState = readWhileJsonObjectHasAndMap("state") {
+        PythonWrapperState.valueOf(it.get("state").asString.uppercase())
     }
 
-    fun readLookupResult() : String {
-
-        var jsonEl : JsonElement
-        var jsonObj : JsonObject
-        var res : String? = null
-
-        while(res == null) {
-            if(!wrapperProcess.isAlive)
-                throw PythonBluezWrapperException("Unable to read from wrapper: process is closed")
-
-            try {
-                jsonEl = jRead()
-                if(jsonEl.isJsonObject) {
-                    jsonObj = jsonEl.asJsonObject
-                    if (jsonObj.has("lookup_res")) {
-                        if(jsonObj.has("errName")) {
-                            throw PythonBluezWrapperException("Error on lookup: [${jsonObj.get("errName")}: " +
-                                    "${jsonObj.get("errArgs")}")
-                        }
-                        res = jsonObj.get("lookup_res").asString
-                    }
-
-                }
-            } catch (e : Exception) {
-                log.catching(e)
-                //Simply ignore the readed value
-            }
-        }
-
-        return res
+    suspend fun readLookupResult() : BluetoothLookupResult = readWhileJsonObjectHasAndMap("lookup_res") {
+        if(it.has("errName")) {
+            BluetoothLookupResult.ofError(it.get("errArgs").asString)
+        } else BluetoothLookupResult.ofName(it.get("lookup_res").asString)
     }
 
-    fun readScanResult() : List<BluetoothDevice> {
-        var jsonEl : JsonElement
-        var jsonObj : JsonObject
-        var res : List<BluetoothDevice>? = null
-
-        while(res == null) {
-            if(!wrapperProcess.isAlive)
-                throw PythonBluezWrapperException("Unable to read from wrapper: process is closed")
-
-            try {
-                jsonEl = jRead()
-                if(jsonEl.isJsonObject) {
-                    jsonObj = jsonEl.asJsonObject
-                    if (jsonObj.has("scan_res")) {
-                        res = mutableListOf<BluetoothDevice>()
-                        val devices = jsonObj.get("scan_res").asJsonArray
-                        var info : JsonObject
-                        for(dev in devices) {
-                            info = dev.asJsonObject
-                            res.add(BluetoothDevice(
-                                info.get("address").asString,
-                                info.get("name").asString,
-                                info.get("classCode").asInt))
-                        }
-                    }
-
-                }
-            } catch (e : Exception) {
-                log.catching(e)
-                //Simply ignore the readed value
-            }
+    suspend fun readScanResult() : List<BluetoothDevice> = readWhileJsonObjectHasAndMap("scan_res") {
+        val res = mutableListOf<BluetoothDevice>()
+        val devices = it.get("scan_res").asJsonArray
+        var info : JsonObject
+        for(dev in devices) {
+            info = dev.asJsonObject
+            res.add(BluetoothDevice(
+                info.get("address").asString,
+                info.get("name").asString,
+                info.get("classCode").asInt))
         }
-
-        return res
+        res
     }
 
-    fun readFindServicesResult() : List<BluetoothService> {
-        var jsonEl : JsonElement
-        var jsonObj : JsonObject
-        var res : List<BluetoothService>? = null
-
-        while(res == null) {
-            if(!wrapperProcess.isAlive)
-                throw PythonBluezWrapperException("Unable to read from wrapper: process is closed")
-
-            try {
-                jsonEl = jRead()
-                if(jsonEl.isJsonObject) {
-                    jsonObj = jsonEl.asJsonObject
-                    if (jsonObj.has("scan_res")) {
-                        res = mutableListOf<BluetoothService>()
-                        val devices = jsonObj.get("find_services_res").asJsonArray
-                        var info : JsonObject
-                        for(dev in devices) {
-                            info = dev.asJsonObject
-                            res.add(BluetoothService(
-                                info.get("host").asString,
-                                BluetoothServiceProtocol.valueOf(info.get("protocol").asString.uppercase()),
-                                info.get("port")?.asInt, info.get("name")?.asString,
-                                info.get("provider")?.asString, UUID.fromString(info.get("service-classes")?.asString),
-                                info.get("profiles")?.asJsonArray?.map { it.asJsonArray }
-                                    ?.map { BluetoothServiceProfile(UUID.fromString(it[0].asString), it[1].asInt) }
-                                    ?.toList() ?: mutableListOf(),
-                                info.get("service-id")?.asString
-                            ))
-                        }
-                    }
-
-                }
-            } catch (e : Exception) {
-                log.catching(e)
-                //Simply ignore the readed value
-            }
+    suspend fun readFindServicesResult() : List<BluetoothService> = readWhileJsonObjectHasAndMap("find_services_res") {
+        val res = mutableListOf<BluetoothService>()
+        val devices = it.get("find_services_res").asJsonArray
+        var info : JsonObject
+        for(dev in devices) {
+            info = dev.asJsonObject
+            res.add(BluetoothService(
+                info.get("host").asString,
+                BluetoothServiceProtocol.valueOf(info.get("protocol").asString.uppercase()),
+                info.getNullable("port")?.asInt, info.getNullable("name")?.asString,
+                info.getNullable("provider")?.asString,
+                info.getNullable("service-classes")?.asJsonArray
+                    ?.map { c -> c.asString }?.toList() ?: listOf(),
+                info.get("profiles")?.asJsonArray?.map { p -> p.asJsonArray }
+                    ?.map { p -> BluetoothServiceProfile(p[0].asString, p[1].asInt) }
+                    ?.toList() ?: listOf(),
+                info.getNullable("service-id")?.asString
+            ))
         }
-
-        return res
+        res
     }
 
-    private fun <T> readWhileJsonObjectHasAndMap(
+    @Throws(PythonBluezWrapperException::class)
+    private suspend fun <T> readWhileJsonObjectHasAndMap(
         key : String,
         mapper : (JsonObject) -> T
     ) : T {
         var jsonEl : JsonElement
         var jsonObj : JsonObject
         var res : T? = null
-        readErrors()
 
-        while(res == null && wrapperProcess.isAlive) {
+        while(res == null) {
+
+            jsonEl = jRead()
+            //Throw the exception if something goes wrong
+
             try {
-                jsonEl = jRead()
                 if(jsonEl.isJsonObject) {
                     jsonObj = jsonEl.asJsonObject
                     if(jsonObj.has(key)) {
@@ -171,47 +102,60 @@ class PythonWrapperReader(private val wrapperProcess: Process) {
 
         }
 
-        if (res == null && !wrapperProcess.isAlive)
-            throw PythonBluezWrapperException("Unable to read from wrapper: process is closed")
-        val errors = readErrors()
-        if(readErrors() != null)
-            throw PythonBluezWrapperException("Errors executing python: $errors")
-        return res!!
+        return res
     }
 
-    private fun jRead() : JsonElement {
-        var line : String = ""
+    @Throws(PythonBluezWrapperException::class)
+    private suspend fun jRead() : JsonElement {
         var res : JsonElement? = null
-        while(res == null && wrapperProcess.isAlive) {
-            try {
-                line = reader.readLine()
-                log.info("Readed line: $line")
-                res = JsonParser.parseString(line)
-            } catch (e : Exception) {
-                log.catching(e)
-                if(!wrapperProcess.isAlive) {
-                    log.error("Process exited. Exit Code = ${wrapperProcess.exitValue()}")
-                    val errors = readErrors()
-                    if(errors != null)
-                        log.error("Errors executing python: $errors")
+        while(res == null) {
+            select<Unit> {
+                pIn.onReceive {
+                    try {
+                        res = JsonParser.parseString(it)
+                    }
+                    catch (_ : JsonParseException) {}
+                    catch (_ : JsonSyntaxException) {}
+                }
+
+                pErr.onReceive {
+                    throw PythonBluezWrapperException("\n${parseJErrors(it).addLevelTab(2)}")
                 }
             }
         }
-        if(res == null && !wrapperProcess.isAlive)
-            throw PythonBluezWrapperException("Unable to read from process output. Unexpected close")
 
         return res!!
     }
 
-    private fun readErrors() : String? {
-        val res = wrapperProcess.errorStream
-            .bufferedReader()
-            .readLines()
-            .joinToString("\n")
-        if(res.isBlank())
-            return null
+    suspend fun checkErrors() : String? {
+        val errs : String?
 
-        return res
+        try {
+            errs = pErr.availableText()
+            println("checkErrors() | errors = $errs")
+        } catch (_ : Exception) {
+            return null
+        }
+
+        if(errs == null)
+            return null
+        return parseJErrors(errs)
+    }
+
+    private fun parseJErrors(str : String) : String {
+        try {
+            val jsonEl = JsonParser.parseString(str)
+            val jsonObj = jsonEl.asJsonObject
+            if (!jsonObj.has("err"))
+                throw PythonBluezWrapperException("Invalid error: $str")
+
+            return jsonObj.get("err").asString.trim()
+
+        } catch (jpe : JsonParseException) {
+            throw PythonBluezWrapperException("Invalid error: $str")
+        } catch (jse : JsonSyntaxException) {
+            throw PythonBluezWrapperException("Invalid error: $str")
+        }
     }
 
 }

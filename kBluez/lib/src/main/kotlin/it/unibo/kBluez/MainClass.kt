@@ -1,55 +1,67 @@
 package it.unibo.kBluez
 
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import java.util.UUID
 
 fun main(args : Array<String>) {
 
-    var line : String
-    var terminated = false
-    val kbluez = KBluezFactory.getKBluez()
-    println("Started")
+    runBlocking {
+        var line : String
+        var terminated = false
+        val kbluez = KBluezFactory.getKBluez(scope = this)
+        println("Started")
 
-    while (!terminated) {
-        println("Waiting command...")
-        print("\t")
-        line = readln()
-        when(line) {
-            "scan" -> {
-                println("Scanning for devices")
-                kbluez.scan().forEach {
-                    println(it)
-                }
-            }
-
-            "lookup" -> {
-                print("\tAddress: ")
+        while (!terminated) {
+            try {
+                println("Waiting command...")
+                print("\t")
                 line = readln()
-                println(kbluez.lookup(line))
-            }
+                when(line) {
+                    "scan" -> {
+                        println("Scanning for devices")
+                        kbluez.scan().forEach {
+                            println(it)
+                        }
+                    }
 
-            "find_services" -> {
-                print("\tName (enter for null): ")
-                line = readln().trim()
-                val name = if(line.isBlank()) null else line
+                    "lookup" -> {
+                        print("\tAddress: ")
+                        line = readln()
+                        println(kbluez.lookup(line))
+                    }
 
-                print("\tUUID (enter for null): ")
-                line = readln().trim()
-                val uuid = if(line.isBlank()) null else UUID.fromString(line)
+                    "find_services" -> {
+                        print("\tName (enter for null): ")
+                        line = readln().trim()
+                        val name = if(line.isBlank()) null else line
 
-                print("\tAddress (enter for null): ")
-                line = readln().trim()
-                val address = if(line.isBlank()) null else line
+                        print("\tUUID (enter for null): ")
+                        line = readln().trim()
+                        val uuid = if(line.isBlank()) null else UUID.fromString(line)
 
-                println(kbluez.findServices(name, uuid, address))
-            }
+                        print("\tAddress (enter for null): ")
+                        line = readln().trim()
+                        val address = if(line.isBlank()) null else line
 
-            "terminate" -> {
-                kbluez.close()
-                terminated = true
+                        kbluez.findServices(name, uuid, address).forEach {
+                            println("\thost: ${it.host}, protocol: ${it.protocol}")
+                        }
+                    }
+
+                    "terminate" -> {
+                        kbluez.close()
+                        terminated = true
+                    }
+                }
+            } catch (e : Exception) {
+                println("Unable to perform operation due to an error:")
+                e.printStackTrace()
             }
         }
-    }
 
-    println("Terminated")
+        println("Terminated")
+        this.cancel()
+    }
 
 }

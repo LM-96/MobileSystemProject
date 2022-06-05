@@ -1,15 +1,22 @@
 package it.unibo.kBluez.pybluez
 
 import com.google.gson.JsonObject
+import it.unibo.kBluez.utils.stringSendChannel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.GlobalScope
 import mu.KotlinLogging
 import java.util.UUID
 
-class PythonWrapperWriter(private val wrapperProcess : Process) {
+class PythonWrapperWriter(
+    private val wrapperProcess : Process,
+    scope : CoroutineScope = GlobalScope
+) {
 
-    private val writer = wrapperProcess.outputStream.bufferedWriter()
+    //private val writer = wrapperProcess.outputStream.bufferedWriter()
+    private val pOut = wrapperProcess.outputStream.stringSendChannel(scope)
     private val log = KotlinLogging.logger(javaClass.simpleName + "[PID=${wrapperProcess.pid()}]")
 
-    fun writeCommand(cmd : String, vararg args : Pair<String, String>) {
+    suspend fun writeCommand(cmd : String, vararg args : Pair<String, String>) {
         if(!wrapperProcess.isAlive)
             throw PythonBluezWrapperException("Unable to write to wrapper: process is closed")
 
@@ -18,24 +25,22 @@ class PythonWrapperWriter(private val wrapperProcess : Process) {
         for(arg in args)
             jsonCmd.addProperty(arg.first, arg.second)
         log.info("writeCommand() | jsonCmd = $jsonCmd")
-        writer.write(jsonCmd.toString())
-        writer.newLine()
-        writer.flush()
+        pOut.send(jsonCmd.toString())
     }
 
-    fun writeScanCommand() {
+    suspend fun writeScanCommand() {
         writeCommand(Commands.SCAN_CMD)
     }
 
-    fun writeLookupCommand(address : String) {
+    suspend fun writeLookupCommand(address : String) {
         writeCommand(Commands.LOOKUP_CMD, "address" to address)
     }
 
-    fun writeTerminateCommand() {
+    suspend fun writeTerminateCommand() {
         writeCommand(Commands.TERMINATE_CMD)
     }
 
-    fun writeFindServicesCommand(name : String? = null,
+    suspend fun writeFindServicesCommand(name : String? = null,
                                  uuid : UUID? = null,
                                  address : String? = null) {
         val args = mutableListOf<Pair<String, String>>()

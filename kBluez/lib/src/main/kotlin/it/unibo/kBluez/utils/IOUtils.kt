@@ -2,6 +2,7 @@ package it.unibo.kBluez.utils
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
+import kotlinx.coroutines.selects.select
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.Closeable
@@ -129,6 +130,116 @@ suspend fun ReceiveChannel<String>.receiveTextUntilClosed() : String? {
         return if(text.isBlank())
             null
         else text.trim()
+    }
+
+}
+
+data class ChannelRoute<T>(
+    val name : String,
+    val passage : (T) -> Boolean,
+    val channel : Channel<T> = Channel()
+)
+
+data class ChannelRouterResponse(
+    val responseCode : Int,
+    val obj : Any? = null
+)
+
+data class ChannelRouterRequest<T>(
+    val cmd : Int,
+    val obj : Any? = null,
+    val interactionChan : Channel<ChannelRouterResponse> = Channel()
+)
+
+class ChannelRouter<T>(
+    private val sourceChan : Channel<T>,
+    private val scope : CoroutineScope = GlobalScope
+) : Closeable, AutoCloseable {
+
+    companion object {
+        const val ADD_ROUTE_REQ = 0
+        const val REMOVE_ROUTE_REQ = 1
+        const val GET_ROUTE_REQ = 2
+        const val TERMINATE_REQ = 3
+
+        const val OK_RES = 0
+        const val ERR_RES = 1
+    }
+
+    private val requestChan = Channel<ChannelRouterRequest<T>>()
+    private val responseChan = Channel<ChannelRouterResponse>()
+    private val routes = mutableMapOf<String, ChannelRoute<T>>()
+    private val job = scope.launch {
+        var terminated = false
+        while(isActive && !terminated) {
+            select<Unit> {
+
+                requestChan.onReceive {
+                    when(it.cmd) {
+                        ADD_ROUTE_REQ -> {
+                            when(it.obj) {
+                                is ChannelRoute<*> -> {
+
+                                }
+                                is List<*> {
+
+                                }
+                            }
+                        }
+                        REMOVE_ROUTE_REQ -> {
+                            routes.remove(it.obj!!.name)
+                            it.interactionChan.send(ChannelRouterResponse(OK_RES))
+                        }
+                        GET_ROUTE_REQ -> {
+                            responseChan.send(ChannelRouterResponse(OK_RES, routes[it.obj!!.name]))
+                        }
+                        TERMINATE_REQ -> {
+                            terminated = true
+                            responseChan.send((ChannelRouterResponse(OK_RES))
+                        }
+                    }
+                }
+
+                sourceChan.onReceive {
+                    routes.values.forEach { route ->
+                        if(route.passage(it))
+                            route.channel.send(it)
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun newRoute(name : String,
+                         passage : (T) -> Boolean,
+                         routeChannel : Channel<T> = Channel()) : ChannelRoute<T> {
+        val route = ChannelRoute(name, passage, routeChannel)
+        val req = ChannelRouterRequest(ADD_ROUTE_REQ, route)
+        requestChan.send()
+
+    }
+
+    fun getRoute(name : String) : ReceiveChannel<T>? {
+        return routes[name]?.channel
+    }
+
+    operator fun get(name : String) : ReceiveChannel<T>? {
+        return routes[name]?.channel
+    }
+
+    private suspend fun performRequest(req : ChannelRouterRequest<T>) : ChannelRouterResponse {
+        requestChan.send(req)
+        return req.interactionChan.receive()
+    }
+
+    override fun close() {
+        runBlocking {
+            requestChan.send(ChannelRouterCmd(TERMINATE_REQ))
+            var code : Int
+            do {
+                code = responseChan.receive().cmd
+            } while (code != TERMINATE_REQ)
+        }
     }
 
 }

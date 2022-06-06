@@ -6,26 +6,24 @@ import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
 import it.unibo.kBluez.model.*
-import it.unibo.kBluez.utils.addLevelTab
-import it.unibo.kBluez.utils.availableText
-import it.unibo.kBluez.utils.getNullable
-import it.unibo.kBluez.utils.stringReceiveChannel
+import it.unibo.kBluez.utils.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.forEach
 import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
-import java.time.LocalDate
+import java.nio.charset.StandardCharsets
 import java.util.*
+import kotlin.collections.ArrayDeque
 
 class PythonWrapperReader(
     private val wrapperProcess: Process,
     private val scope : CoroutineScope = GlobalScope
 ) {
 
-    private val pIn = Channel<String>()
+    private var pIn = wrapperProcess.inputStream.stringReceiveChannel(scope)
     private val pErr = wrapperProcess.errorStream.stringReceiveChannel(scope)
     private val log = KotlinLogging.logger(javaClass.simpleName + "[PID=${wrapperProcess.pid()}]")
 
@@ -74,6 +72,29 @@ class PythonWrapperReader(
         }
         res
     }
+
+    suspend fun readSocketReceive() : ByteArray =
+        readWhileJsonObjectHasAndMap("received_data") {
+            it.get("received_data").asString
+            .substring(0, it.get("size").asInt)
+            .toByteArray(StandardCharsets.UTF_8)
+    }
+
+
+    suspend fun readNewSocketUUID() : String =
+        readWhileJsonObjectHasAndMap("new_socket_uuid") {
+            it.get("new_socket_uuid").asString
+        }
+
+    suspend fun readSocketAcceptResult() :
+            Triple<String, String, BluetoothServiceProtocol> =
+        readWhileJsonObjectHasAndMap("client_sock_uuid") {
+            val jsonObj = it.asJsonObject
+            Triple(it.get("client_sock_uuid").asString,
+                it.get("client_address").asString,
+                BluetoothServiceProtocol.valueOf(it.get("client_proto").asString.uppercase())
+            )
+        }
 
     @Throws(PythonBluezWrapperException::class)
     private suspend fun <T> readWhileJsonObjectHasAndMap(
@@ -155,6 +176,13 @@ class PythonWrapperReader(
             throw PythonBluezWrapperException("Invalid error: $str")
         } catch (jse : JsonSyntaxException) {
             throw PythonBluezWrapperException("Invalid error: $str")
+        }
+    }
+
+    suspend fun ensureState(expected : PythonWrapperState) {
+        val last = readState()
+        if(last != expected) {
+            throw PythonBluezWrapperException("Unexpected state $last [expected = $expected]")
         }
     }
 

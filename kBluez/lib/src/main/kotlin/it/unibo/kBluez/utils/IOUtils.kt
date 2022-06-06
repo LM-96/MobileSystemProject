@@ -2,6 +2,9 @@ package it.unibo.kBluez.utils
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.selects.select
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -9,6 +12,7 @@ import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.Map
 
 class BufferedReaderChannelWrapper(
     private val reader : BufferedReader,
@@ -152,79 +156,154 @@ data class ChannelRouterRequest<T>(
 )
 
 class ChannelRouter<T>(
-    private val sourceChan : Channel<T>,
-    private val scope : CoroutineScope = GlobalScope
+    private val sourceChan : ReceiveChannel<T>,
+    scope : CoroutineScope = GlobalScope
 ) : Closeable, AutoCloseable {
 
     companion object {
-        const val ADD_ROUTE_REQ = 0
-        const val REMOVE_ROUTE_REQ = 1
-        const val GET_ROUTE_REQ = 2
-        const val TERMINATE_REQ = 3
+        const val START_ROUTING_REQ = 0
+        const val ADD_ROUTE_REQ = 1
+        const val REMOVE_ROUTE_REQ = 2
+        const val GET_ROUTE_REQ = 3
+        const val TERMINATE_REQ = 4
 
         const val OK_RES = 0
         const val ERR_RES = 1
     }
 
     private val requestChan = Channel<ChannelRouterRequest<T>>()
-    private val responseChan = Channel<ChannelRouterResponse>()
-    private val routes = mutableMapOf<String, ChannelRoute<T>>()
+    private val ackChan = Channel<Unit>()
     private val job = scope.launch {
         var terminated = false
+        var started = false
+        val routes = mutableMapOf<String, ChannelRoute<T>>()
+        var iterator : MutableIterator<MutableMap.MutableEntry<String, ChannelRoute<T>>>
+        var current : MutableMap.MutableEntry<String, ChannelRoute<T>>
         while(isActive && !terminated) {
             select<Unit> {
+                println("Router | select")
 
                 requestChan.onReceive {
                     when(it.cmd) {
+                        START_ROUTING_REQ -> {
+                            started = true
+                            it.interactionChan.send(ChannelRouterResponse(OK_RES))
+                        }
                         ADD_ROUTE_REQ -> {
                             when(it.obj) {
                                 is ChannelRoute<*> -> {
-
-                                }
-                                is List<*> {
-
+                                    try {
+                                        routes[it.obj.name] = it.obj as ChannelRoute<T>
+                                        println("Router | added new route : ${it.obj.name}")
+                                        it.interactionChan.send(ChannelRouterResponse(OK_RES))
+                                    } catch (e : Exception) {
+                                        it.interactionChan.send(ChannelRouterResponse(ERR_RES, e))
+                                    }
                                 }
                             }
                         }
                         REMOVE_ROUTE_REQ -> {
-                            routes.remove(it.obj!!.name)
-                            it.interactionChan.send(ChannelRouterResponse(OK_RES))
+                            when(it.obj) {
+                                is ChannelRoute<*> -> {
+                                    try {
+                                        routes.remove(it.obj!!.name)
+                                        it.interactionChan.send(ChannelRouterResponse(OK_RES))
+                                    } catch (e : Exception) {
+                                        it.interactionChan.send(ChannelRouterResponse(ERR_RES, e))
+                                    }
+                                }
+                            }
                         }
                         GET_ROUTE_REQ -> {
-                            responseChan.send(ChannelRouterResponse(OK_RES, routes[it.obj!!.name]))
+                            if(it.obj is String) {
+                                it.interactionChan.send(ChannelRouterResponse(OK_RES, routes.remove(it.obj)))
+                            } else {
+                                it.interactionChan.send(ChannelRouterResponse(ERR_RES,
+                                    IllegalArgumentException("The key must be a string")
+                                ))
+                            }
                         }
                         TERMINATE_REQ -> {
                             terminated = true
-                            responseChan.send((ChannelRouterResponse(OK_RES))
+                            it.interactionChan.send((ChannelRouterResponse(OK_RES)))
                         }
                     }
                 }
 
-                sourceChan.onReceive {
-                    routes.values.forEach { route ->
-                        if(route.passage(it))
-                            route.channel.send(it)
+                if(started) {
+                    try {
+                        sourceChan.onReceive {
+                            println("Router | incoming message : $it")
+                            iterator = routes.iterator()
+                            while(iterator.hasNext()) {
+                                current = iterator.next()
+                                if(current.value.passage(it))
+                                    try {
+                                        println("Router | routing message [$it] to ${current.key}")
+                                        current.value.channel.send(it)
+                                    } catch (csce : ClosedSendChannelException) {
+                                        iterator.remove()
+                                    } catch (ce : CancellationException) {
+                                        iterator.remove()
+                                    }
+                            }
+                        }
+                    } catch (crce : ClosedReceiveChannelException) {
+                        routes.values.forEach { it.channel.close(crce) }
+                        routes.clear()
+                        terminated = true
+                    } catch (ce : CancellationException) {
+                        routes.values.forEach { it.channel.close(ce) }
+                        routes.clear()
+                        terminated = true
                     }
                 }
             }
         }
+
+        ackChan.send(Unit)
+    }
+
+    suspend fun start() {
+        performRequest(ChannelRouterRequest(START_ROUTING_REQ))
+    }
+
+    suspend fun started() : ChannelRouter<T> {
+        start()
+        return this
     }
 
     suspend fun newRoute(name : String,
-                         passage : (T) -> Boolean,
-                         routeChannel : Channel<T> = Channel()) : ChannelRoute<T> {
+                         routeChannel : Channel<T> = Channel(),
+                         passage : (T) -> Boolean) : ReceiveChannel<T> {
         val route = ChannelRoute(name, passage, routeChannel)
-        val req = ChannelRouterRequest(ADD_ROUTE_REQ, route)
-        requestChan.send()
+        val res = performRequest(ChannelRouterRequest<T>(ADD_ROUTE_REQ, route))
+        when(res.responseCode) {
+            OK_RES -> return route.channel
+            ERR_RES -> throw res.obj as Exception
+        }
 
+        return route.channel
     }
 
-    fun getRoute(name : String) : ReceiveChannel<T>? {
-        return routes[name]?.channel
+    suspend fun getRoute(name : String) : ChannelRoute<T>? {
+        val res = performRequest(ChannelRouterRequest(GET_ROUTE_REQ, name))
+        when(res.responseCode) {
+            OK_RES -> return res.obj as ChannelRoute<T>?
+            ERR_RES -> throw res.obj as Exception
+        }
+
+        return null
     }
 
-    operator fun get(name : String) : ReceiveChannel<T>? {
-        return routes[name]?.channel
+    suspend fun removeRoute(name : String) : ChannelRoute<T>? {
+        val res = performRequest(ChannelRouterRequest(REMOVE_ROUTE_REQ, name))
+        when(res.responseCode) {
+            OK_RES -> return (res.obj as ChannelRoute<T>?)
+            ERR_RES -> throw res.obj as Exception
+        }
+
+        return null
     }
 
     private suspend fun performRequest(req : ChannelRouterRequest<T>) : ChannelRouterResponse {
@@ -234,12 +313,66 @@ class ChannelRouter<T>(
 
     override fun close() {
         runBlocking {
-            requestChan.send(ChannelRouterCmd(TERMINATE_REQ))
-            var code : Int
-            do {
-                code = responseChan.receive().cmd
-            } while (code != TERMINATE_REQ)
+            performRequest(ChannelRouterRequest(TERMINATE_REQ))
+            ackChan.receive()
+            job.join()
+        }
+    }
+}
+
+fun <T> ReceiveChannel<T>.newRouter(scope : CoroutineScope = GlobalScope) : ChannelRouter<T> {
+    return ChannelRouter(this, scope)
+}
+
+class ChannelToStateFlowWrapper<I, O>(
+    private val channel : ReceiveChannel<I>,
+    initialValue : O,
+    scope : CoroutineScope = GlobalScope,
+    private val mapper : (I) -> O,
+) : Closeable, AutoCloseable {
+
+    private val terminationChan = Channel<Unit>()
+    private val ackChan = Channel<Exception?>()
+    private val internalStateFlow = MutableStateFlow(initialValue)
+    val stateFlow = internalStateFlow.asStateFlow()
+
+    private val job = scope.launch {
+        var terminated = false
+        while(isActive && !terminated) {
+            select<Unit> {
+                try {
+                    channel.onReceive {
+                        println("ChannelStateFlowWrapper | emitting $it on flow")
+                        internalStateFlow.emit(mapper(it))
+                    }
+                } catch (_ : ClosedReceiveChannelException) {
+                    terminated = true
+                } catch (_ : CancellationException) {
+                    terminated = true
+                } catch (e : Exception) {
+                    e.printStackTrace()
+                    //Cathces the exception of the mapper
+                }
+                terminationChan.onReceive {
+                    terminated = true
+                    ackChan.send(null)
+                }
+            }
         }
     }
 
+    override fun close() {
+        runBlocking {
+            terminationChan.send(Unit)
+            ackChan.receive()
+            job.join()
+        }
+    }
+
+}
+
+fun <T, O> ReceiveChannel<T>.asStateFlow(initialValue : O, scope : CoroutineScope = GlobalScope,
+                                         mapper : (T) -> O) : StateFlow<O>
+{
+    return ChannelToStateFlowWrapper(this, initialValue, scope, mapper).stateFlow
 }

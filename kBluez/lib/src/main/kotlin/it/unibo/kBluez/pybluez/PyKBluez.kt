@@ -4,6 +4,8 @@ import it.unibo.kBluez.KBluez
 import it.unibo.kBluez.model.BluetoothDevice
 import it.unibo.kBluez.model.BluetoothLookupResult
 import it.unibo.kBluez.model.BluetoothService
+import it.unibo.kBluez.model.BluetoothServiceProtocol
+import it.unibo.kBluez.socket.PyBluezSocket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -122,6 +124,10 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) : KBluez {
         ensureState(PythonWrapperState.IDLE)
 
         return res
+    }
+
+    override suspend fun newSocket(protocol : BluetoothServiceProtocol): PyBluezSocket {
+        return PyBluezSocket.newPyBluezSocket(input, output, protocol)
     }
 
     @Throws(PythonBluezWrapperException::class)

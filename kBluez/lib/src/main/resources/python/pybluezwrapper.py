@@ -4,6 +4,7 @@ import traceback
 import json
 import sys
 import uuid
+import pykka
 import bluetooth
 
 def updateState(state : string):

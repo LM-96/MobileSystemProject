@@ -113,8 +113,6 @@ class PyBluezSocket internal constructor(
         writer.writeSocketConnectCommand(uuid, address, port)
         reader.ensureState(PythonWrapperState.CONNECTING_SOCKET)
         reader.ensureState(PythonWrapperState.IDLE)
-        inputStream = BluetoothInputStream(uuid, reader)
-        outputStream = BluetoothOutputStream(uuid, writer)
     }
 
     suspend fun send(data : ByteArray, offset : Int = 0, length : Int = data.size) {

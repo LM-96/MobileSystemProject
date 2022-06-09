@@ -18,6 +18,14 @@ class PyBluezWrapperReader(
 
     private val log = KotlinLogging.logger(javaClass.simpleName + "[${hashCode()}]")
 
+    @Throws(PyBluezWrapperException::class)
+    suspend fun ensureState(expected : PyBluezWrapperState) {
+        val last = readState()
+        if(last != expected) {
+            throw PyBluezWrapperException("Unexpected state $last [expected = $expected]")
+        }
+    }
+
     suspend fun readState() : PyBluezWrapperState = readWhileJsonObjectHasAndMap("state") {
         PyBluezWrapperState.valueOf(it.get("state").asString.uppercase())
     }
@@ -64,6 +72,36 @@ class PyBluezWrapperReader(
         res
     }
 
+    suspend fun readSocketConnectResponse() : String =
+        readWhileJsonObjectHasAndMap("connect_res") {
+            it.get("connect_res").asString
+        }
+
+    suspend fun readSocketBindResponse() : String =
+        readWhileJsonObjectHasAndMap("bind_res") {
+            it.get("bind_res").asString
+        }
+
+    suspend fun readSocketListenResponse() : String =
+        readWhileJsonObjectHasAndMap("listen_res") {
+            it.get("listen_res").asString
+        }
+
+    suspend fun readSocketSendResponse() : String =
+        readWhileJsonObjectHasAndMap("send_res") {
+            it.get("send_res").asString
+        }
+
+    suspend fun readSocketShutdownResponse() : String =
+        readWhileJsonObjectHasAndMap("shutdown_res") {
+            it.get("shutdown_res").asString
+        }
+
+    suspend fun readSocketCloseResponse() : String =
+        readWhileJsonObjectHasAndMap("close_res") {
+            it.get("close_res").asString
+        }
+
     suspend fun readSocketReceive() : ByteArray =
         readWhileJsonObjectHasAndMap("received_data") {
             it.get("received_data").asString
@@ -78,14 +116,19 @@ class PyBluezWrapperReader(
         }
 
     suspend fun readSocketAcceptResult() :
-            Triple<String, String, BluetoothServiceProtocol> =
-        readWhileJsonObjectHasAndMap("client_sock_uuid") {
-            val jsonObj = it.asJsonObject
-            Triple(it.get("client_sock_uuid").asString,
-                it.get("client_address").asString,
-                BluetoothServiceProtocol.valueOf(it.get("client_proto").asString.uppercase())
+            Pair<String, String> =
+        readWhileJsonObjectHasAndMap("accept_res") {
+            Pair(it.get("accept_res").asString,
+                it.get("accept_res_address").asString
             )
         }
+
+    suspend fun readSocketGetAddressResult()  =
+        readWhileJsonObjectHasAndMap("sock_address") {
+            Pair(it.get("sock_address").asString, it.get("sock_port").asInt)
+        }
+
+
 
     @Throws(PyBluezWrapperException::class)
     private suspend fun <T> readWhileJsonObjectHasAndMap(
@@ -95,6 +138,7 @@ class PyBluezWrapperReader(
         var jsonEl : JsonElement
         var jsonObj : JsonObject
         var res : T? = null
+        checkErrors() //consume some remaining errors
 
         while(res == null) {
 
@@ -124,18 +168,16 @@ class PyBluezWrapperReader(
         return parseJErrors(pErr.receive())
     }
 
+    suspend fun skipRemaining() {
+        while(!pIn.isEmpty)
+            pIn.receive()
+    }
+
     private fun parseJErrors(jsonObj: JsonObject) : String {
         if (!jsonObj.has("err"))
             throw PyBluezWrapperException("Invalid error: $jsonObj")
 
         return "${jsonObj.get("source").asString.trim()}: ${jsonObj.get("err").asString.trim()}"
-    }
-
-    suspend fun ensureState(expected : PyBluezWrapperState) {
-        val last = readState()
-        if(last != expected) {
-            throw PyBluezWrapperException("Unexpected state $last [expected = $expected]")
-        }
     }
 
     override fun close() {

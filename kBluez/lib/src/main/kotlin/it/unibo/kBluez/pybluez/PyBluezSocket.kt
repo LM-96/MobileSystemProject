@@ -1,66 +1,94 @@
 package it.unibo.kBluez.pybluez
 
-import com.google.gson.JsonObject
+import it.unibo.kBluez.model.BluetoothServiceProtocol
 import it.unibo.kBluez.socket.BluetoothSocket
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
 
 class PyBluezSocket internal constructor(
     private val uuid : String,
-    private val sockIn : Channel<JsonObject>,
-    private val sockOut : Channel<JsonObject>,
-    private val sockErr : Channel<JsonObject>
+    override val protocol : BluetoothServiceProtocol,
+    private val pyKBluez : PyKBluez,
+    private val reader : PyBluezWrapperReader,
+    private val writer : PyBluezWrapperWriter
 ) : BluetoothSocket {
 
-    private var host : String? = null
-    private var localPort : Int? = null
-    private var remoteHost : String? = null
-    private var remotePort : Int? = null
-
-    override suspend fun getHost(): String? {
-        return host
+    override suspend fun getLocalHost(): String? {
+        return try {
+            writer.writeSocketGetLocalAddressCommand(uuid)
+            reader.readSocketGetAddressResult().first
+        } catch (e : Exception) {
+            null
+        }
     }
 
-    override suspend fun getPort(): Int? {
-        return localPort
+    override suspend fun getLocalPort(): Int? {
+        return try {
+            writer.writeSocketGetLocalAddressCommand(uuid)
+            reader.readSocketGetAddressResult().second
+        } catch (e : Exception) {
+            null
+        }
     }
 
     override suspend fun getRemoteHost(): String? {
-        return remoteHost
+        return try {
+            writer.writeSocketGetRemoteAddressCommand(uuid)
+            reader.readSocketGetAddressResult().first
+        } catch (e : Exception) {
+            null
+        }
     }
 
     override suspend fun getRemotePort(): Int? {
-        return remotePort
+        return try {
+            writer.writeSocketGetRemoteAddressCommand(uuid)
+            reader.readSocketGetAddressResult().second
+        } catch (e : Exception) {
+            null
+        }
     }
 
     override suspend fun connect(address: String, port: Int) {
+        writer.writeSocketConnectCommand(uuid, address, port)
+        reader.readSocketConnectResponse()
     }
 
     override suspend fun bind(port: Int?) {
-        TODO("Not yet implemented")
+        writer.writeSocketBindCommand(uuid, port)
+        reader.readSocketBindResponse()
     }
 
     override suspend fun listen(backlog: Int) {
-        TODO("Not yet implemented")
+        writer.writeSocketListenCommand(uuid, backlog)
+        reader.readSocketListenResponse()
     }
 
-    override suspend fun accept() {
-        TODO("Not yet implemented")
+    override suspend fun accept() : BluetoothSocket {
+        writer.writeSocketAcceptCommand(uuid)
+        val clientInfo = reader.readSocketAcceptResult()
+        return pyKBluez.instantiateSocket(clientInfo.first, protocol)
     }
 
-    override suspend fun send(data: ByteArray) {
-        TODO("Not yet implemented")
+    override suspend fun send(data: ByteArray, offset : Int, length : Int) {
+        writer.writeSocketSendCommand(uuid, data, offset, length)
+        reader.readSocketSendResponse()
     }
 
     override suspend fun shutdown() {
-        TODO("Not yet implemented")
+        writer.writeSocketShutdownCommand(uuid)
+        reader.readSocketShutdownResponse()
     }
 
     override suspend fun receive(bufsize: Int): ByteArray {
-        TODO("Not yet implemented")
+        writer.writeSocketReceiveCommand(uuid, bufsize)
+        return reader.readSocketReceive()
     }
 
     override fun close() {
-        TODO("Not yet implemented")
+        runBlocking {
+            writer.writeSocketCloseCommand(uuid)
+            reader.readSocketCloseResponse()
+        }
     }
 
 

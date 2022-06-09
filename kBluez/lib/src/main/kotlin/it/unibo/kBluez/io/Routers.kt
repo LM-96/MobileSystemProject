@@ -50,14 +50,14 @@ fun <O> InputStream.newFanOutMappedStringRouter(scope : CoroutineScope = GlobalS
 }
 
 /* FAN IN ROUTERS ********************************************************************************* */
-fun <O> SendChannel<O>.newFanInSimpleRouter(scope : CoroutineScope = GlobalScope, name : String = "") : CloseableChannelRouter<O> {
-    return FanInChannelRouter<O, O>(this, scope, name) { Optional.of(it) }
+fun <I> SendChannel<I>.newFanInSimpleRouter(scope : CoroutineScope = GlobalScope, name : String = "") : CloseableChannelRouter<I> {
+    return FanInChannelRouter(this, scope, name) { Optional.of(it) }
 }
 
-fun <T, O> SendChannel<O>.newFanOutMappedRouter(scope : CoroutineScope = GlobalScope,
+fun <I, T> SendChannel<T>.newFanInMappedRouter(scope : CoroutineScope = GlobalScope,
                                                    name : String = "",
-                                                   mapper : (T) -> Optional<O>
-) : CloseableChannelRouter<O> {
+                                                   mapper : (I) -> Optional<T>
+) : CloseableChannelRouter<I> {
     return FanInChannelRouter(this, scope, name, mapper)
 }
 
@@ -65,10 +65,10 @@ fun BufferedWriter.newFanInSimpleStringRouter(scope : CoroutineScope = GlobalSco
     return this.stringSendChannel(scope).newFanInSimpleRouter()
 }
 
-fun <T> BufferedWriter.newFanInMappedStringRouter(scope : CoroutineScope = GlobalScope,
+fun <I> BufferedWriter.newFanInMappedStringRouter(scope : CoroutineScope = GlobalScope,
                                                    name : String = "",
-                                                   mapper : (T) -> Optional<String>
-) : CloseableChannelRouter<String> {
+                                                   mapper : (I) -> Optional<String>
+) : CloseableChannelRouter<I> {
     return FanInChannelRouter(this.stringSendChannel(scope), scope, name, mapper)
 }
 
@@ -76,9 +76,9 @@ fun OutputStream.newFanInSimpleStringRouter(scope : CoroutineScope = GlobalScope
     return this.bufferedWriter().newFanInSimpleStringRouter(scope, name)
 }
 
-fun <T> OutputStream.newFanInMappedStringRouter(scope : CoroutineScope = GlobalScope,
+fun <I> OutputStream.newFanInMappedStringRouter(scope : CoroutineScope = GlobalScope,
                                                 name : String = "",
-                                                mapper : (T) -> Optional<String>
-) : CloseableChannelRouter<String> {
+                                                mapper : (I) -> Optional<String>
+) : CloseableChannelRouter<I> {
     return FanInChannelRouter(this.stringSendChannel(scope), scope, name, mapper)
 }

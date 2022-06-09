@@ -9,6 +9,8 @@ import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
 import java.util.*
 
+//T: the type that enters to the router
+//O: the type emitted by the router
 open class FanOutChannelRouter<T, O> (
     private val sourceChan : ReceiveChannel<T>,
     scope : CoroutineScope = GlobalScope,
@@ -28,7 +30,7 @@ open class FanOutChannelRouter<T, O> (
     }
 
     private val log = KotlinLogging.logger("${this::class.simpleName!!}[$routerName]")
-    private val requestChan = Channel<ChannelRouterRequest<T>>()
+    private val requestChan = Channel<ChannelRouterRequest<O>>()
     private val ackChan = Channel<Unit>()
     private val job = scope.launch {
         var mapped : Optional<O>
@@ -160,7 +162,7 @@ open class FanOutChannelRouter<T, O> (
         performRequest(ChannelRouterRequest(START_ROUTING_REQ))
     }
 
-    override suspend fun started() : ChannelRoute<O> {
+    override suspend fun started() : ChannelRouter<O> {
         start()
         return this
     }
@@ -169,7 +171,7 @@ open class FanOutChannelRouter<T, O> (
                                   routeChannel : Channel<O>,
                                   passage : (O) -> Boolean) : ChannelRoute<O> {
         val route = ChannelRoute(name, passage, routeChannel)
-        val res = performRequest(ChannelRouterRequest<T>(ADD_ROUTE_REQ, route))
+        val res = performRequest(ChannelRouterRequest(ADD_ROUTE_REQ, route))
         when(res.responseCode) {
             OK_RES -> return route
             ERR_RES -> throw res.obj as Exception
@@ -198,7 +200,7 @@ open class FanOutChannelRouter<T, O> (
         return null
     }
 
-    private suspend fun performRequest(req : ChannelRouterRequest<T>) : ChannelRouterResponse {
+    private suspend fun performRequest(req : ChannelRouterRequest<O>) : ChannelRouterResponse {
         requestChan.send(req)
         return req.interactionChan.receive()
     }

@@ -6,12 +6,14 @@ import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
 import java.util.*
 
-open class FanInChannelRouter<O, T> (
-    private val outChan : SendChannel<O>,
+//T: the type that exit from the single line of the router
+//I: the type that enters the router
+open class FanInChannelRouter<I, T> (
+    private val outChan : SendChannel<T>,
     scope : CoroutineScope = GlobalScope,
     routerName : String = "",
-    private val mapper : (T) -> Optional<O>
-): CloseableChannelRouter<O> {
+    private val mapper : (I) -> Optional<T>
+): CloseableChannelRouter<I> {
 
     companion object {
         const val START_ROUTING_REQ = 0
@@ -25,72 +27,72 @@ open class FanInChannelRouter<O, T> (
     }
 
     private val log = KotlinLogging.logger("${this::class.simpleName!!}[$routerName]")
-    private val requestChan = Channel<ChannelRouterRequest<T>>()
+    private val requestChan = Channel<ChannelRouterRequest<I>>()
     private val ackChan = Channel<Unit>()
     private val job = scope.launch {
-        var mapped : Optional<O>
-        var mappedElement : O
+        var mapped : Optional<T>
+        var mappedElement : T
         var terminated = false
         var started = false
-        val routes = mutableMapOf<String, ChannelRoute<T>>()
-        var iterator : MutableIterator<MutableMap.MutableEntry<String, ChannelRoute<T>>>
-        var current : MutableMap.MutableEntry<String, ChannelRoute<T>>
+        val routes = mutableMapOf<String, ChannelRoute<I>>()
+        var iterator : MutableIterator<MutableMap.MutableEntry<String, ChannelRoute<I>>>
+        var current : MutableMap.MutableEntry<String, ChannelRoute<I>>
         while(isActive && !terminated) {
             select<Unit> {
                 log.info("new select cycle")
 
-                requestChan.onReceive {
-                    log.info("received request [$it]")
-                    when(it.cmd) {
+                requestChan.onReceive { req ->
+                    log.info("received request [$req]")
+                    when(req.cmd) {
                         START_ROUTING_REQ -> {
                             started = true
-                            it.interactionChan.send(ChannelRouterResponse(OK_RES))
+                            req.interactionChan.send(ChannelRouterResponse(OK_RES))
                             log.info("started routing")
                         }
                         ADD_ROUTE_REQ -> {
-                            when(it.obj) {
+                            when(req.obj) {
                                 is ChannelRoute<*> -> {
                                     try {
-                                        routes[it.obj.name] = it.obj as ChannelRoute<T>
-                                        it.interactionChan.send(ChannelRouterResponse(OK_RES))
-                                        log.info("added new route [${it.obj.name}]")
+                                        routes[req.obj.name] = req.obj as ChannelRoute<I>
+                                        req.interactionChan.send(ChannelRouterResponse(OK_RES))
+                                        log.info("added new route [${req.obj.name}]")
                                     } catch (e : Exception) {
-                                        it.interactionChan.send(ChannelRouterResponse(ERR_RES, e))
-                                        log.error("unable to add route with request $it")
+                                        req.interactionChan.send(ChannelRouterResponse(ERR_RES, e))
+                                        log.error("unable to add route with request $req")
                                         log.catching(e)
                                     }
                                 }
                             }
                         }
                         REMOVE_ROUTE_REQ -> {
-                            when(it.obj) {
+                            when(req.obj) {
                                 is ChannelRoute<*> -> {
                                     try {
-                                        routes.remove(it.obj!!.name)
-                                        it.interactionChan.send(ChannelRouterResponse(OK_RES))
-                                        log.info("removed route [${it.obj!!.name}]")
+                                        routes.remove(req.obj!!.name)
+                                        req.interactionChan.send(ChannelRouterResponse(OK_RES))
+                                        log.info("removed route [${req.obj!!.name}]")
                                     } catch (e : Exception) {
-                                        it.interactionChan.send(ChannelRouterResponse(ERR_RES, e))
-                                        log.error("unable to remove route with request $it")
+                                        req.interactionChan.send(ChannelRouterResponse(ERR_RES, e))
+                                        log.error("unable to remove route with request $req")
                                     }
                                 }
                             }
                         }
                         GET_ROUTE_REQ -> {
-                            if(it.obj is String) {
-                                it.interactionChan.send(ChannelRouterResponse(OK_RES, routes[it.obj]))
-                                log.info("get route [${it.obj}]")
+                            if(req.obj is String) {
+                                req.interactionChan.send(ChannelRouterResponse(OK_RES, routes[req.obj]))
+                                log.info("get route [${req.obj}]")
                             } else {
-                                it.interactionChan.send(ChannelRouterResponse(
+                                req.interactionChan.send(ChannelRouterResponse(
                                     ERR_RES,
                                     IllegalArgumentException("The key must be a string")
                                 ))
-                                log.error("unable to get router with request [$it] : key is not a String but ${it.obj?.javaClass}")
+                                log.error("unable to get router with request [$req] : key is not a String but ${req.obj?.javaClass}")
                             }
                         }
                         TERMINATE_REQ -> {
                             terminated = true
-                            it.interactionChan.send((ChannelRouterResponse(OK_RES)))
+                            req.interactionChan.send((ChannelRouterResponse(OK_RES)))
                             log.info("termination requested")
                         }
                     }
@@ -100,13 +102,17 @@ open class FanInChannelRouter<O, T> (
                     routes.forEach { route ->
                         try {
                             route.value.channel.onReceive { msg ->
-                                log.info("outcoming message from ${route.key}: $msg")
-                                mapped = mapper(msg)
-                                if(mapped.isPresent) {
-                                    mappedElement = mapped.get()
-                                    log.info("message {$msg}(${msg!!::class.java}) mapped into {$mappedElement}(${mappedElement!!::class.java})")
-                                    outChan.send(mappedElement)
-                                    log.info("message $msg forwarded to the out route")
+                                if(route.value.passage(msg)) {
+                                    log.info("outcoming message from ${route.key}: $msg")
+                                    mapped = mapper(msg)
+                                    if(mapped.isPresent) {
+                                        mappedElement = mapped.get()
+                                        log.info("message {$msg}(${msg!!::class.java}) mapped into {$mappedElement}(${mappedElement!!::class.java})")
+                                        outChan.send(mappedElement)
+                                        log.info("message $msg forwarded to the out route")
+                                    }
+                                } else {
+                                    log.info("passage denied for \'$msg\' incoming from route \'${route.value}\'")
                                 }
                             }
                         } catch (crce : ClosedReceiveChannelException) {
@@ -141,16 +147,17 @@ open class FanInChannelRouter<O, T> (
         performRequest(ChannelRouterRequest(START_ROUTING_REQ))
     }
 
-    override suspend fun started() : ChannelRoute<O> {
+    override suspend fun started() : ChannelRouter<I> {
         start()
         return this
     }
 
     override suspend fun newRoute(name : String,
-                                  routeChannel : Channel<T>,
-                                  passage : (T) -> Boolean) : ChannelRoute<T> {
+                                  routeChannel : Channel<I>,
+                                  passage : (I) -> Boolean
+    ) : ChannelRoute<I> {
         val route = ChannelRoute(name, passage, routeChannel)
-        val res = performRequest(ChannelRouterRequest<T>(ADD_ROUTE_REQ, route))
+        val res = performRequest(ChannelRouterRequest(ADD_ROUTE_REQ, route))
         when(res.responseCode) {
             OK_RES -> return route
             ERR_RES -> throw res.obj as Exception
@@ -159,27 +166,27 @@ open class FanInChannelRouter<O, T> (
         return route
     }
 
-    override suspend fun getRoute(name : String) : ChannelRoute<O>? {
+    override suspend fun getRoute(name : String) : ChannelRoute<I>? {
         val res = performRequest(ChannelRouterRequest(GET_ROUTE_REQ, name))
         when(res.responseCode) {
-            OK_RES -> return res.obj as ChannelRoute<O>?
+            OK_RES -> return res.obj as ChannelRoute<I>?
             ERR_RES -> throw res.obj as Exception
         }
 
         return null
     }
 
-    override suspend fun removeRoute(name : String) : ChannelRoute<O>? {
+    override suspend fun removeRoute(name : String) : ChannelRoute<I>? {
         val res = performRequest(ChannelRouterRequest(REMOVE_ROUTE_REQ, name))
         when(res.responseCode) {
-            OK_RES -> return (res.obj as ChannelRoute<O>?)
+            OK_RES -> return (res.obj as ChannelRoute<I>?)
             ERR_RES -> throw res.obj as Exception
         }
 
         return null
     }
 
-    private suspend fun performRequest(req : ChannelRouterRequest<T>) : ChannelRouterResponse {
+    private suspend fun performRequest(req : ChannelRouterRequest<I>) : ChannelRouterResponse {
         requestChan.send(req)
         return req.interactionChan.receive()
     }

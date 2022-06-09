@@ -46,9 +46,12 @@ class PyBluezWrapperWriter(
         writeCommand(Commands.NEW_SOCKET_CMD, "protocol" to protocol.name)
     }
 
-    suspend fun writeSocketBindCommand(uuid : String, port : Int) {
-        writeCommand(Commands.SOCKET_BIND_CMD, "uuid" to uuid,
-            "port" to port.toString())
+    suspend fun writeSocketBindCommand(uuid : String, port : Int?) {
+        if(port != null)
+            writeCommand(Commands.SOCKET_BIND_CMD, "uuid" to uuid,
+                "port" to port.toString())
+        else
+            writeCommand(Commands.SOCKET_BIND_CMD, "uuid" to uuid)
     }
 
     suspend fun writeSocketListenCommand(uuid: String, backlog : Int? = null) {
@@ -95,8 +98,12 @@ class PyBluezWrapperWriter(
         writeCommand(Commands.SOCKET_SET_L2CAP_MTU_CMD, "uuid" to uuid, "mtu" to mtu.toString())
     }
 
-    suspend fun writeSocketGetAddressCommand(uuid: String) {
-        writeCommand(Commands.SOCKET_GET_ADDRESS_CMD, "uuid" to uuid)
+    suspend fun writeSocketGetLocalAddressCommand(uuid: String) {
+        writeCommand(Commands.SOCKET_GET_LOCAL_ADDRESS_CMD, "uuid" to uuid)
+    }
+
+    suspend fun writeSocketGetRemoteAddressCommand(uuid: String) {
+        writeCommand(Commands.SOCKET_GET_REMOTE_ADDRESS_CMD, "uuid" to uuid)
     }
 
     suspend fun writeSocketAdvertiseService(uuid: String, serviceName : String, serviceUuid : String) {

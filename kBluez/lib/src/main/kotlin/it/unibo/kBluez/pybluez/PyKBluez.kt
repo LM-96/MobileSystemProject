@@ -4,7 +4,6 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import it.unibo.kBluez.KBluez
 import it.unibo.kBluez.io.CloseableChannelRouter
-import it.unibo.kBluez.io.mapped
 import it.unibo.kBluez.io.newFanInMappedStringRouter
 import it.unibo.kBluez.io.newFanOutMappedStringRouter
 import it.unibo.kBluez.model.BluetoothDevice
@@ -12,11 +11,7 @@ import it.unibo.kBluez.model.BluetoothLookupResult
 import it.unibo.kBluez.model.BluetoothService
 import it.unibo.kBluez.model.BluetoothServiceProtocol
 import it.unibo.kBluez.socket.BluetoothSocket
-import it.unibo.kBluez.utils.stringSendChannel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import mu.KLogger
 import mu.KotlinLogging
 import java.io.Closeable
@@ -51,7 +46,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
     private lateinit var input : PyBluezWrapperReader
     private lateinit var output : PyBluezWrapperWriter
     private lateinit var pInRouter : CloseableChannelRouter<JsonObject>
-    private lateinit var pOutRouter : CloseableChannelRouter<String>
+    private lateinit var pOutRouter : CloseableChannelRouter<JsonObject>
     private lateinit var pErrRouter : CloseableChannelRouter<JsonObject>
     private lateinit var log : KLogger
     private var started = false
@@ -103,6 +98,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         pOutRouter = process.outputStream.newFanInMappedStringRouter<JsonObject>(scope, "pOut") {
             Optional.of(it.toString())
         }
+        pOutRouter.started()
 
         input = PyBluezWrapperReader(
             pInRouter.newRoute("pykbluez-main-p-stdin").channel,
@@ -139,7 +135,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
     override suspend fun scan(): List<BluetoothDevice> {
         log.info("scanning...")
         ensureRunning()
-        input.checkErrors()
+        input.skipRemaining()
 
         output.writeCommand(Commands.SCAN_CMD)
         ensureState(PyBluezWrapperState.SCANNING)
@@ -154,6 +150,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
     override suspend fun lookup(address: String): BluetoothLookupResult {
         log.info("looking up for \"$address\"")
         ensureRunning()
+        input.skipRemaining()
 
         output.writeLookupCommand(address)
         ensureState(PyBluezWrapperState.LOOKING_UP)
@@ -167,6 +164,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
     override suspend fun findServices(name : String?, uuid : UUID?, address : String?): List<BluetoothService> {
         log.info("find services...")
         ensureRunning()
+        input.skipRemaining()
 
         output.writeFindServicesCommand(name, uuid, address)
         ensureState(PyBluezWrapperState.FINDING_SERVICES)
@@ -178,23 +176,43 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
     }
 
     @Throws(PyBluezWrapperException::class)
-    override suspend fun newSocket(protocol : BluetoothServiceProtocol): BluetoothSocket {
+    override suspend fun requestNewSocket(protocol : BluetoothServiceProtocol): BluetoothSocket {
         log.info("creating new $protocol socket")
         ensureRunning()
+        input.skipRemaining()
 
         output.writeNewSocketCommand(protocol)
         val uuid = input.readNewSocketUUID()
+        input.ensureState(PyBluezWrapperState.IDLE)
 
-        val sock_in = pInRouter.newRoute("sock_$uuid"){
-            if(!it.has("sock_uuid")) return@newRoute false
-            return@newRoute it.get("sock_uuid").asString == uuid
+        return instantiateSocket(uuid, protocol)
+    }
+
+    internal suspend fun instantiateSocket(uuid : String,
+                                           protocol : BluetoothServiceProtocol
+    ) : BluetoothSocket {
+        val sockIn = pInRouter.newRoute("sock_$uuid"){
+            if(!it.has("sock_uuid"))
+                return@newRoute false
+            return@newRoute it.get("sock_uuid").asString == uuid || it.has("state")
         }.channel
 
-        val sock_err = pErrRouter.newRoute("sock_$uuid"){
-            if(!it.has("sock_uuid")) return@newRoute false
-            return@newRoute it.get("sock_uuid").asString == uuid
+        val sockErr = pErrRouter.newRoute("sock_$uuid"){
+            if(!it.has("source"))
+                return@newRoute true
+            return@newRoute it.get("source").asString == "BluetoothSocketActor[$uuid]"
         }.channel
 
+        val sockOut = pOutRouter.newRoute("sock_$uuid") {
+            if(it.has("sock_uuid"))
+                if(it.get("sock_uuid").asString == uuid)
+                    true
+
+            false
+        }.channel
+
+        return PyBluezSocket(uuid, protocol, this, PyBluezWrapperReader(sockIn, sockErr),
+            PyBluezWrapperWriter(sockOut))
     }
 
     @Throws(PyBluezWrapperException::class)
@@ -202,6 +220,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         runBlocking {
             log.info("closing...")
             if(process.isAlive) {
+                input.skipRemaining()
                 output.writeTerminateCommand()
                 ensureState(PyBluezWrapperState.TERMINATED)
                 process.waitFor()

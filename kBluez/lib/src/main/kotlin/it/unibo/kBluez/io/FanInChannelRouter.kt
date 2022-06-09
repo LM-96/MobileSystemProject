@@ -112,7 +112,7 @@ open class FanInChannelRouter<I, T> (
                                         log.info("message $msg forwarded to the out route")
                                     }
                                 } else {
-                                    log.info("passage denied for \'$msg\' incoming from route \'${route.value}\'")
+                                    log.info("passage denied for \'$msg\' incoming from route \'${route.key}\'")
                                 }
                             }
                         } catch (crce : ClosedReceiveChannelException) {

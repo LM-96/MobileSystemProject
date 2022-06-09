@@ -77,7 +77,7 @@ try:
             self.uuid_str = uuid_str
             self.sock = sock
             self.sock_proto = sock_proto
-            self.name = "BluetoothSocketActor[" + uuid_str + "]"
+            self.name = "sock_uuid_" + uuid_str
             self.manager_proxy = manager_proxy
 
         def sock_get_local_address(self):
@@ -103,10 +103,7 @@ try:
 
         def sock_bind(self, port):
             try:
-                if(port == None):
-                    self.sock.bind("", bluetooth.PORT_ANY)
-                else:
-                    self.sock.bind(("", port))
+                self.sock.bind(("", port))
                 print_dict({"sock_uuid":self.uuid_str, "bind_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
@@ -248,61 +245,103 @@ try:
 
     def a_sock_bind(msg):
         #updateState("BINDING_SOCKET")
-        port = getOrNone(msg, "port")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_bind(int(port))
+        try:
+            port = getOrNone(msg, "port")
+            if(port == None):
+                bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_bind(bluetooth.PORT_ANY)
+            else:
+                bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_bind(int(port))
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_get_local_address(msg):
         #updateState("GETTING_LOCAL_ADDRESS")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_get_local_address()
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_get_local_address()
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
     
     def a_sock_get_remote_address(msg):
         #updateState("GETTING_REMOTE_ADDRESS")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_get_remote_address()
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_get_remote_address()
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_listen(msg):
-        #updateState("LISTENING_SOCKET")
-        backlog = getOrNone(msg, "backlog")
-        if(backlog == None):
-            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen()
-        else:
-            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen(backlog)
+        #updateState("LISTENING_SOCKET")       
+        try:
+            backlog = getOrNone(msg, "backlog")
+            if(backlog == None):
+                bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen()
+            else:
+                bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen(backlog)
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_accept(msg):
         #updateState("ACCEPTING_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_accept()
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_accept()
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_receive(msg):
         #updateState("RECEIVING_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_receive(int(msg["bufsize"]))
+        try:
+           bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_receive(int(msg["bufsize"]))
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
         
 
     def a_sock_close(msg):
         #updateState("CLOSING_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_close()
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_close()
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_connect(msg):
         #updateState("CONNECTING_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_connect(msg["address"], int(msg["port"]))    
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_connect(msg["address"], int(msg["port"]))
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_send(msg):
         #updateState("SENDING_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_send(msg["data"])
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_send(msg["data"])
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_shutdown(msg):
         #updateState("SHUTTING_DOWN_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_shutdown()
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_shutdown()
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_set_l2cap_mtu(msg):
         #updateState("SETTING_L2CAP_MTU_SOCKET")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_set_l2cap_mtu(int(msg["mtu"]))
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_set_l2cap_mtu(int(msg["mtu"]))
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_advertise_service(msg):
         #updateState("ADVERTISING_SERVICE")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_advertise_service(msg["service_name"], msg["service_uuid"])
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_advertise_service(msg["service_name"], msg["service_uuid"])
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
     def a_sock_stop_advertising(msg):
         #updateState("STOP_ADVERTISING")
-        bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_stop_advertising()
+        try:
+            bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_stop_advertising()
+        except Exception:
+            print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
 
     def terminate():

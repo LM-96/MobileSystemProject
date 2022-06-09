@@ -5,6 +5,7 @@ import kotlinx.coroutines.channels.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
+import org.apache.commons.io.IOUtils
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.Closeable
@@ -20,15 +21,16 @@ class BufferedReaderChannelWrapper(
     scope : CoroutineScope = GlobalScope
 ) : Closeable, AutoCloseable {
 
-    private val channel = Channel<String>()
+    private val channel = Channel<String>(1024)
     private val job = scope.launch(Dispatchers.IO) {
         var line : String? = null
         try {
             do{
                 line = reader.readLine()
-                IO_LOG.info("readed line: $line")
+                IO_LOG.info("readed line from BufferedReader: $line")
                 if(line != null) {
                     channel.send(line)
+                    IO_LOG.info("line [$line] sent to channel")
                 }
             } while (line != null)
         } catch (ioe : IOException) {
@@ -133,10 +135,11 @@ class OutputStreamStringChannelWrapper(
         try {
             while(true) {
                 line = channel.receive()
-                writer.write(line)
-                writer.newLine()
+                IO_LOG.info("received line from channel: $line")
+                writer.write("${line.trim()}\n")
+                //writer.newLine()
                 writer.flush()
-                IO_LOG.info("written line: $line")
+                IO_LOG.info("written line [$line] to BufferedWriter")
             }
         } catch (crce : ClosedReceiveChannelException) {
             IO_LOG.info("receive channel is closed")

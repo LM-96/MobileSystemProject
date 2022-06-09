@@ -40,6 +40,10 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
             PY_BLUEZ_WR_EXECUTABLE = createTempFile("pybluezwrapper.", ".py")
             Files.copy(resource, PY_BLUEZ_WR_EXECUTABLE, StandardCopyOption.REPLACE_EXISTING)
         }
+
+        suspend fun newBluetoothSocket(protocol: BluetoothServiceProtocol) : BluetoothSocket {
+            return PyKBluez().requestNewSocket(protocol)
+        }
     }
 
     private lateinit var process : Process
@@ -183,6 +187,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
 
         output.writeNewSocketCommand(protocol)
         val uuid = input.readNewSocketUUID()
+        log.info("received new socket uuid: $uuid")
         input.ensureState(PyBluezWrapperState.IDLE)
 
         return instantiateSocket(uuid, protocol)
@@ -200,15 +205,15 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         val sockErr = pErrRouter.newRoute("sock_$uuid"){
             if(!it.has("source"))
                 return@newRoute true
-            return@newRoute it.get("source").asString == "BluetoothSocketActor[$uuid]"
+            return@newRoute it.get("source").asString == "sock_uuid_$uuid"
         }.channel
 
         val sockOut = pOutRouter.newRoute("sock_$uuid") {
-            if(it.has("sock_uuid"))
+            /*if(it.has("sock_uuid"))
                 if(it.get("sock_uuid").asString == uuid)
                     true
 
-            false
+            false*/ true
         }.channel
 
         return PyBluezSocket(uuid, protocol, this, PyBluezWrapperReader(sockIn, sockErr),

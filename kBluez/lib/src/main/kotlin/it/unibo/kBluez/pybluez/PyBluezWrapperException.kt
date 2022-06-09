@@ -1,4 +1,4 @@
 package it.unibo.kBluez.pybluez
 
-class PythonBluezWrapperException(details : String) :
+class PyBluezWrapperException(details : String) :
     Exception(details)

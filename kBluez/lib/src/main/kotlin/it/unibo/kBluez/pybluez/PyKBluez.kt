@@ -1,17 +1,25 @@
 package it.unibo.kBluez.pybluez
 
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import it.unibo.kBluez.KBluez
+import it.unibo.kBluez.io.CloseableChannelRouter
+import it.unibo.kBluez.io.mapped
+import it.unibo.kBluez.io.newFanInMappedStringRouter
+import it.unibo.kBluez.io.newFanOutMappedStringRouter
 import it.unibo.kBluez.model.BluetoothDevice
 import it.unibo.kBluez.model.BluetoothLookupResult
 import it.unibo.kBluez.model.BluetoothService
 import it.unibo.kBluez.model.BluetoothServiceProtocol
-import it.unibo.kBluez.socket.PyBluezSocket
+import it.unibo.kBluez.socket.BluetoothSocket
+import it.unibo.kBluez.utils.stringSendChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.runBlocking
 import mu.KLogger
 import mu.KotlinLogging
+import java.io.Closeable
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,7 +28,9 @@ import java.util.*
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createTempFile
 
-class PyKBluez(private val scope : CoroutineScope = GlobalScope) : KBluez {
+class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
+    KBluez, Closeable, AutoCloseable
+{
 
     companion object {
         private const val PY_BLUEZ_WR_ORIGIN = "/python/pybluezwrapper.py"
@@ -29,7 +39,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) : KBluez {
 
         init {
             val resource: InputStream = Companion::class.java.getResourceAsStream(PY_BLUEZ_WR_ORIGIN)
-                ?: throw PythonBluezWrapperException("Python bluez wrapper not found at \'$PY_BLUEZ_WR_ORIGIN\'\n" +
+                ?: throw PyBluezWrapperException("Python bluez wrapper not found at \'$PY_BLUEZ_WR_ORIGIN\'\n" +
                         "Base dir: ${Companion::class.java.getResource(".")?.path}")
 
             PY_BLUEZ_WR_EXECUTABLE = createTempFile("pybluezwrapper.", ".py")
@@ -38,104 +48,171 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) : KBluez {
     }
 
     private lateinit var process : Process
-    private lateinit var input : PythonWrapperReader
-    private lateinit var output : PythonWrapperWriter
+    private lateinit var input : PyBluezWrapperReader
+    private lateinit var output : PyBluezWrapperWriter
+    private lateinit var pInRouter : CloseableChannelRouter<JsonObject>
+    private lateinit var pOutRouter : CloseableChannelRouter<String>
+    private lateinit var pErrRouter : CloseableChannelRouter<JsonObject>
     private lateinit var log : KLogger
+    private var started = false
+
     init {
         runBlocking {
             startProcess()
         }
     }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     private suspend fun startProcess() {
+        if(started) {
+            pErrRouter.close()
+            pInRouter.close()
+            input.close()
+            output.close()
+        }
+
         try {
-            process = ProcessBuilder("python3",
+            process = ProcessBuilder("python",
                 PY_BLUEZ_WR_EXECUTABLE.absolutePathString()).start()
         } catch (e : Exception) {
             LOG.catching(e)
-            throw PythonBluezWrapperException("Unable to start python wrapper: ${e.localizedMessage}")
+            throw PyBluezWrapperException("Unable to start python wrapper: ${e.localizedMessage}")
         }
         log = KotlinLogging
             .logger("${javaClass.simpleName}[${process.pid()}]")
         log.info("started python process [PID=${process.pid()}]")
-        input = PythonWrapperReader(process, scope)
-        output = PythonWrapperWriter(process, scope)
+
+        pInRouter = process.inputStream.newFanOutMappedStringRouter(scope, "pIn") {
+            try {
+                Optional.of(JsonParser.parseString(it).asJsonObject)
+            } catch (e : Exception) {
+                Optional.empty<JsonObject>()
+            }
+        }
+        pInRouter.started()
+
+        pErrRouter = process.errorStream.newFanOutMappedStringRouter(scope, "pErr") {
+            try {
+                Optional.of(JsonParser.parseString(it).asJsonObject)
+            } catch (e : Exception) {
+                Optional.empty<JsonObject>()
+            }
+        }
+        pErrRouter.started()
+
+        pOutRouter = process.outputStream.newFanInMappedStringRouter<JsonObject>(scope, "pOut") {
+            Optional.of(it.toString())
+        }
+
+        input = PyBluezWrapperReader(
+            pInRouter.newRoute("pykbluez-main-p-stdin").channel,
+            pErrRouter.newRoute("pykbluez-main-p-stderr").channel,
+        )
+        output = PyBluezWrapperWriter(
+            pOutRouter.newRoute("pykbluez-main-p-stdout").channel,
+            scope)
 
         log.info("waiting for IDLE state")
-        ensureState(PythonWrapperState.IDLE)
+        ensureState(PyBluezWrapperState.IDLE)
         log.info("correctly started")
+        started = true
     }
 
-    @Throws(PythonBluezWrapperException::class)
-    private suspend fun ensureState(expected : PythonWrapperState) {
+    @Throws(PyBluezWrapperException::class)
+    private suspend fun ensureState(expected : PyBluezWrapperState) {
         val last = input.readState()
         if(last != expected)
-            throw PythonBluezWrapperException("Unexpected state $last [expected = $expected]")
+            throw PyBluezWrapperException("Unexpected state $last [expected = $expected]")
     }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     private suspend fun ensureRunning() {
         if(!process.isAlive) {
             startProcess()
             if(!process.isAlive)
-                throw PythonBluezWrapperException("Tried to start python process but fails")
+                throw PyBluezWrapperException("Tried to start python process but fails")
         }
 
     }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     override suspend fun scan(): List<BluetoothDevice> {
-        log.info("scan()")
+        log.info("scanning...")
         ensureRunning()
         input.checkErrors()
 
         output.writeCommand(Commands.SCAN_CMD)
-        ensureState(PythonWrapperState.SCANNING)
+        ensureState(PyBluezWrapperState.SCANNING)
 
         val res = input.readScanResult()
         log.info("scan result = $res")
-        ensureState(PythonWrapperState.IDLE)
+        ensureState(PyBluezWrapperState.IDLE)
         return res
     }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     override suspend fun lookup(address: String): BluetoothLookupResult {
-        log.info("lookup($address)")
+        log.info("looking up for \"$address\"")
         ensureRunning()
 
         output.writeLookupCommand(address)
-        ensureState(PythonWrapperState.LOOKING_UP)
+        ensureState(PyBluezWrapperState.LOOKING_UP)
         val res = input.readLookupResult()
-        log.info("lookup result = $res")
-        ensureState(PythonWrapperState.IDLE)
+        log.info("lookup result [\"$address\"] = $res")
+        ensureState(PyBluezWrapperState.IDLE)
         return res
     }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     override suspend fun findServices(name : String?, uuid : UUID?, address : String?): List<BluetoothService> {
-        log.info("findServices()")
+        log.info("find services...")
         ensureRunning()
 
         output.writeFindServicesCommand(name, uuid, address)
-        ensureState(PythonWrapperState.FINDING_SERVICES)
+        ensureState(PyBluezWrapperState.FINDING_SERVICES)
         val res = input.readFindServicesResult()
         log.info("find services result = $res")
-        ensureState(PythonWrapperState.IDLE)
+        ensureState(PyBluezWrapperState.IDLE)
 
         return res
     }
 
-    override suspend fun newSocket(protocol : BluetoothServiceProtocol): PyBluezSocket {
-        return PyBluezSocket.newPyBluezSocket(input, output, protocol)
+    @Throws(PyBluezWrapperException::class)
+    override suspend fun newSocket(protocol : BluetoothServiceProtocol): BluetoothSocket {
+        log.info("creating new $protocol socket")
+        ensureRunning()
+
+        output.writeNewSocketCommand(protocol)
+        val uuid = input.readNewSocketUUID()
+
+        val sock_in = pInRouter.newRoute("sock_$uuid"){
+            if(!it.has("sock_uuid")) return@newRoute false
+            return@newRoute it.get("sock_uuid").asString == uuid
+        }.channel
+
+        val sock_err = pErrRouter.newRoute("sock_$uuid"){
+            if(!it.has("sock_uuid")) return@newRoute false
+            return@newRoute it.get("sock_uuid").asString == uuid
+        }.channel
+
     }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     override fun close() {
         runBlocking {
-            log.info("close()")
-            if(process.isAlive)
+            log.info("closing...")
+            if(process.isAlive) {
                 output.writeTerminateCommand()
+                ensureState(PyBluezWrapperState.TERMINATED)
+                process.waitFor()
+                log.info("process closed with code: ${process.exitValue()}")
+            }
+            pErrRouter.close()
+            pInRouter.close()
+
+            input.close()
+            output.close()
+            log.info("closed")
         }
     }
 }

@@ -1,5 +1,6 @@
 package it.unibo.kBluez
 
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import java.util.UUID
@@ -10,6 +11,7 @@ fun main(args : Array<String>) {
         var line : String
         var terminated = false
         val kbluez = KBluezFactory.getKBluez(scope = this)
+
         println("Started")
 
         while (!terminated) {
@@ -61,7 +63,9 @@ fun main(args : Array<String>) {
         }
 
         println("Terminated")
-        this.cancel()
+        kbluez.close()
+
+        this.cancel("termination")
     }
 
 }

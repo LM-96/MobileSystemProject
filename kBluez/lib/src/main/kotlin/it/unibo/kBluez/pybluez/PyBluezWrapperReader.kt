@@ -2,33 +2,24 @@ package it.unibo.kBluez.pybluez
 
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.google.gson.JsonParseException
-import com.google.gson.JsonParser
-import com.google.gson.JsonSyntaxException
 import it.unibo.kBluez.model.*
 import it.unibo.kBluez.utils.*
-import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.forEach
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
+import java.io.Closeable
 import java.nio.charset.StandardCharsets
-import java.util.*
-import kotlin.collections.ArrayDeque
 
-class PythonWrapperReader(
-    private val wrapperProcess: Process,
-    private val scope : CoroutineScope = GlobalScope
-) {
+class PyBluezWrapperReader(
+    private val pIn : ReceiveChannel<JsonObject>,
+    private val pErr : ReceiveChannel<JsonObject>
+) : Closeable, AutoCloseable {
 
-    private var pIn = wrapperProcess.inputStream.stringReceiveChannel(scope)
-    private val pErr = wrapperProcess.errorStream.stringReceiveChannel(scope)
-    private val log = KotlinLogging.logger(javaClass.simpleName + "[PID=${wrapperProcess.pid()}]")
+    private val log = KotlinLogging.logger(javaClass.simpleName + "[${hashCode()}]")
 
-    suspend fun readState() : PythonWrapperState = readWhileJsonObjectHasAndMap("state") {
-        PythonWrapperState.valueOf(it.get("state").asString.uppercase())
+    suspend fun readState() : PyBluezWrapperState = readWhileJsonObjectHasAndMap("state") {
+        PyBluezWrapperState.valueOf(it.get("state").asString.uppercase())
     }
 
     suspend fun readLookupResult() : BluetoothLookupResult = readWhileJsonObjectHasAndMap("lookup_res") {
@@ -96,7 +87,7 @@ class PythonWrapperReader(
             )
         }
 
-    @Throws(PythonBluezWrapperException::class)
+    @Throws(PyBluezWrapperException::class)
     private suspend fun <T> readWhileJsonObjectHasAndMap(
         key : String,
         mapper : (JsonObject) -> T
@@ -107,82 +98,50 @@ class PythonWrapperReader(
 
         while(res == null) {
 
-            jsonEl = jRead()
-            //Throw the exception if something goes wrong
-
-            try {
-                if(jsonEl.isJsonObject) {
-                    jsonObj = jsonEl.asJsonObject
+            select<Unit> {
+                pIn.onReceive { jsonObj ->
                     if(jsonObj.has(key)) {
                         res = mapper(jsonObj)
                     }
                 }
-            } catch (e : Exception) {
-                log.catching(e)
-            }
-
-        }
-
-        return res
-    }
-
-    @Throws(PythonBluezWrapperException::class)
-    private suspend fun jRead() : JsonElement {
-        var res : JsonElement? = null
-        while(res == null) {
-            select<Unit> {
-                pIn.onReceive {
-                    try {
-                        res = JsonParser.parseString(it)
-                    }
-                    catch (_ : JsonParseException) {}
-                    catch (_ : JsonSyntaxException) {}
-                }
 
                 pErr.onReceive {
-                    throw PythonBluezWrapperException("\n${parseJErrors(it).addLevelTab(2)}")
+                    throw PyBluezWrapperException("\n${parseJErrors(it).addLevelTab(2)}")
                 }
             }
-        }
 
+        }
         return res!!
     }
 
     suspend fun checkErrors() : String? {
         val errs : String?
 
-        try {
-            errs = pErr.availableText()
-            println("checkErrors() | errors = $errs")
-        } catch (_ : Exception) {
+        if(pErr.isEmpty) {
             return null
         }
 
-        if(errs == null)
-            return null
-        return parseJErrors(errs)
+        return parseJErrors(pErr.receive())
     }
 
-    private fun parseJErrors(str : String) : String {
-        try {
-            val jsonEl = JsonParser.parseString(str)
-            val jsonObj = jsonEl.asJsonObject
-            if (!jsonObj.has("err"))
-                throw PythonBluezWrapperException("Invalid error: $str")
+    private fun parseJErrors(jsonObj: JsonObject) : String {
+        if (!jsonObj.has("err"))
+            throw PyBluezWrapperException("Invalid error: $jsonObj")
 
-            return jsonObj.get("err").asString.trim()
-
-        } catch (jpe : JsonParseException) {
-            throw PythonBluezWrapperException("Invalid error: $str")
-        } catch (jse : JsonSyntaxException) {
-            throw PythonBluezWrapperException("Invalid error: $str")
-        }
+        return "${jsonObj.get("source").asString.trim()}: ${jsonObj.get("err").asString.trim()}"
     }
 
-    suspend fun ensureState(expected : PythonWrapperState) {
+    suspend fun ensureState(expected : PyBluezWrapperState) {
         val last = readState()
         if(last != expected) {
-            throw PythonBluezWrapperException("Unexpected state $last [expected = $expected]")
+            throw PyBluezWrapperException("Unexpected state $last [expected = $expected]")
+        }
+    }
+
+    override fun close() {
+        runBlocking {
+            pIn.cancel()
+            pErr.cancel()
         }
     }
 

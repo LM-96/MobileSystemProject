@@ -5,29 +5,29 @@ import it.unibo.kBluez.model.BluetoothServiceProtocol
 import it.unibo.kBluez.utils.stringSendChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.channels.SendChannel
 import mu.KotlinLogging
+import java.io.Closeable
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
-class PythonWrapperWriter(
-    private val wrapperProcess : Process,
+class PyBluezWrapperWriter(
+    private val pOut : SendChannel<JsonObject>,
     scope : CoroutineScope = GlobalScope
-) {
+) : Closeable, AutoCloseable {
 
-    //private val writer = wrapperProcess.outputStream.bufferedWriter()
-    private val pOut = wrapperProcess.outputStream.stringSendChannel(scope)
-    private val log = KotlinLogging.logger(javaClass.simpleName + "[PID=${wrapperProcess.pid()}]")
+    private val log = KotlinLogging.logger(javaClass.simpleName + "[${hashCode()}]")
 
     suspend fun writeCommand(cmd : String, vararg args : Pair<String, String>) {
-        if(!wrapperProcess.isAlive)
-            throw PythonBluezWrapperException("Unable to write to wrapper: process is closed")
+        if(pOut.isClosedForSend)
+            throw PyBluezWrapperException("This writer has been closed")
 
         val jsonCmd = JsonObject()
         jsonCmd.addProperty("cmd", cmd)
         for(arg in args)
             jsonCmd.addProperty(arg.first, arg.second)
         log.info("writeCommand() | jsonCmd = $jsonCmd")
-        pOut.send(jsonCmd.toString())
+        pOut.send(jsonCmd)
     }
 
     suspend fun writeScanCommand() {
@@ -72,6 +72,10 @@ class PythonWrapperWriter(
         writeCommand(Commands.SOCKET_CLOSE_CMD, "uuid" to uuid)
     }
 
+    suspend fun writeSocketShutdownCommand(uuid : String) {
+        writeCommand(Commands.SOCKET_SHUTDOWN_CMD, "uuid" to uuid)
+    }
+
     suspend fun writeSocketConnectCommand(uuid : String, address : String, port : Int) {
         writeCommand(Commands.SOCKET_CONNECT_CMD, "uuid" to uuid,
             "address" to address, "port" to port.toString())
@@ -87,6 +91,24 @@ class PythonWrapperWriter(
         )
     }
 
+    suspend fun writeSocketSetL2CapMtuCommand(uuid: String, mtu : Int) {
+        writeCommand(Commands.SOCKET_SET_L2CAP_MTU_CMD, "uuid" to uuid, "mtu" to mtu.toString())
+    }
+
+    suspend fun writeSocketGetAddressCommand(uuid: String) {
+        writeCommand(Commands.SOCKET_GET_ADDRESS_CMD, "uuid" to uuid)
+    }
+
+    suspend fun writeSocketAdvertiseService(uuid: String, serviceName : String, serviceUuid : String) {
+        writeCommand(Commands.SOCKET_ADVERTISE_SERVICE_CMD, "uuid" to uuid,
+            "service_name" to serviceName, "service_uuid" to serviceUuid
+        )
+    }
+
+    suspend fun writeSocketStopAdvertisingCommand(uuid : String) {
+        writeCommand(Commands.SOCKET_STOP_ADVERTISING_CMD, "uuid" to uuid)
+    }
+
     suspend fun writeFindServicesCommand(name : String? = null,
                                  uuid : UUID? = null,
                                  address : String? = null) {
@@ -98,6 +120,10 @@ class PythonWrapperWriter(
         if(address != null)
             args.add("address" to address)
         writeCommand(Commands.FIND_SERVICES, *(args.toTypedArray()))
+    }
+
+    override fun close() {
+        pOut.close()
     }
 
 }

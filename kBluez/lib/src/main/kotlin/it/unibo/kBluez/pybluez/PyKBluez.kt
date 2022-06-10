@@ -3,9 +3,7 @@ package it.unibo.kBluez.pybluez
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import it.unibo.kBluez.KBluez
-import it.unibo.kBluez.io.CloseableChannelRouter
-import it.unibo.kBluez.io.newFanInMappedStringRouter
-import it.unibo.kBluez.io.newFanOutMappedStringRouter
+import it.unibo.kBluez.io.*
 import it.unibo.kBluez.model.BluetoothDevice
 import it.unibo.kBluez.model.BluetoothLookupResult
 import it.unibo.kBluez.model.BluetoothService
@@ -105,8 +103,13 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         pOutRouter.started()
 
         input = PyBluezWrapperReader(
-            pInRouter.newRoute("pykbluez-main-p-stdin").channel,
-            pErrRouter.newRoute("pykbluez-main-p-stderr").channel,
+            pInRouter.newRoute("pykbluez-main-p-stdin",
+                passage = allowedKeyFilterPassage(STATE_KEY, SCAN_RES_KEY, LOOKUP_RES_KEY, FIND_SERVICES_RES_KEY,
+                    NEW_SOCKET_UUID)
+            ).channel,
+            pErrRouter.newRoute("pykbluez-main-p-stderr",
+                passage = allowedKeyStringFilterPassage("source", "main")
+            ).channel,
         )
         output = PyBluezWrapperWriter(
             pOutRouter.newRoute("pykbluez-main-p-stdout").channel,
@@ -186,6 +189,7 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         input.skipRemaining()
 
         output.writeNewSocketCommand(protocol)
+        input.ensureState(PyBluezWrapperState.CREATING_SOCKET)
         val uuid = input.readNewSocketUUID()
         log.info("received new socket uuid: $uuid")
         input.ensureState(PyBluezWrapperState.IDLE)
@@ -196,25 +200,44 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
     internal suspend fun instantiateSocket(uuid : String,
                                            protocol : BluetoothServiceProtocol
     ) : BluetoothSocket {
-        val sockIn = pInRouter.newRoute("sock_$uuid"){
-            if(!it.has("sock_uuid"))
-                return@newRoute false
-            return@newRoute it.get("sock_uuid").asString == uuid || it.has("state")
-        }.channel
+        val sockName = "sock_$uuid"
 
-        val sockErr = pErrRouter.newRoute("sock_$uuid"){
-            if(!it.has("source"))
-                return@newRoute true
-            return@newRoute it.get("source").asString == "sock_uuid_$uuid"
-        }.channel
+        log.info("adding new route to the process stdin for \'$sockName\'")
+        val sockIn = pInRouter.newRoute("sock_in_$sockName",
+            passage = allowedKeyStringFilterPassage("sock_uuid", uuid)
+        ).channel
+        if(pInRouter.getRoute("sock_in_$sockName") != null)
+            log.info("stdin route correctly added")
+        else {
+            log.error("unable to add a route for stdin")
+            throw PyBluezWrapperException("Unable to add new STDIN route for the new socket [$sockName]")
+        }
 
-        val sockOut = pOutRouter.newRoute("sock_$uuid") {
+        log.info("adding new route to the process stderr for \'$sockName\'")
+        val sockErr = pErrRouter.newRoute("sock_err_$sockName",
+            passage = allowedKeyStringFilterPassage("source", "sock_uuid_$uuid")
+        ).channel
+        if(pErrRouter.getRoute("sock_err_$sockName") != null)
+            log.info("stderr route correctly added")
+        else {
+            log.error("unable to add a route for stderr")
+            throw PyBluezWrapperException("Unable to add new STDERR route for the new socket [$sockName]")
+        }
+
+        log.info("adding new route to the process stdout for \'$sockName\'")
+        val sockOut = pOutRouter.newRoute("sock_out_$sockName") {
             /*if(it.has("sock_uuid"))
                 if(it.get("sock_uuid").asString == uuid)
                     true
 
             false*/ true
         }.channel
+        if(pOutRouter.getRoute("sock_out_$sockName") != null)
+            log.info("stdout route correctly added")
+        else {
+            log.error("unable to add a route for stdout")
+            throw PyBluezWrapperException("Unable to add new STDOUT route for the new socket [$sockName]")
+        }
 
         return PyBluezSocket(uuid, protocol, this, PyBluezWrapperReader(sockIn, sockErr),
             PyBluezWrapperWriter(sockOut))

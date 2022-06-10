@@ -26,6 +26,9 @@ interface BluetoothSocket : Closeable, AutoCloseable {
     suspend fun shutdown()
     suspend fun receive(bufsize : Int = 1024) : ByteArray
 
+    suspend fun advertiseService(name : String, uuid : String)
+    suspend fun stopAdvertising()
+
     suspend fun asyncAccept(scope : CoroutineScope, block : suspend BluetoothSocket.() -> Unit) : BluetoothSocket {
         val accepted = accept()
         scope.launch {

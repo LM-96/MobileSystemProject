@@ -275,7 +275,7 @@ try:
             if(backlog == None):
                 bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen()
             else:
-                bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen(backlog)
+                bluetooth_manager_proxy.get_proxy(msg["sock_uuid"]).get().sock_listen(int(backlog))
         except Exception:
             print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 

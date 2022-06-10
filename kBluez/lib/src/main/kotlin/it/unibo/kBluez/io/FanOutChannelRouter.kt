@@ -1,10 +1,7 @@
 package it.unibo.kBluez.io
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
-import kotlinx.coroutines.channels.ClosedSendChannelException
-import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.*
 import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
 import java.util.*
@@ -37,6 +34,7 @@ open class FanOutChannelRouter<T, O> (
         var mappedElement : O
         var terminated = false
         var started = false
+        var chanRes : ChannelResult<Unit>
         val routes = mutableMapOf<String, ChannelRoute<O>>()
         var iterator : MutableIterator<MutableMap.MutableEntry<String, ChannelRoute<O>>>
         var current : MutableMap.MutableEntry<String, ChannelRoute<O>>
@@ -108,28 +106,35 @@ open class FanOutChannelRouter<T, O> (
                             mapped = mapper(it)
                             if(mapped.isPresent) {
                                 mappedElement = mapped.get()
-                                log.info("message {$it}(${it!!::class.java}) mapped into {$mappedElement}(${mappedElement!!::class.java})")
+                                log.info("message mapped from (${it!!::class.java}) into (${mappedElement!!::class.java})")
                                 iterator = routes.iterator()
                                 while(iterator.hasNext()) {
                                     current = iterator.next()
-                                    if(current.value.passage(mappedElement))
+                                    log.info("checking route ${current.key}")
+                                    if(current.value.passage(mappedElement)) {
                                         try {
-                                            current.value.channel.send(mappedElement)
-                                            log.info("message [$it] routed to ${current.key}")
-                                        } catch (csce : ClosedSendChannelException) {
+                                            log.info("passage open for route ${current.key}")
+                                            chanRes = current.value.channel.trySend(mappedElement)
+                                            if(chanRes.isSuccess) log.info("message routed to ${current.key}")
+                                            else if(chanRes.isFailure) log.info("unable to send message to ${current.key}")
+                                            else chanRes.getOrThrow()
+                                        } catch (csce: ClosedSendChannelException) {
                                             log.warn("unable to route message to ${current.key}: channel closed")
                                             log.catching(csce)
                                             iterator.remove()
                                             log.info("route \'${current.key}\' removed")
-                                        } catch (ce : CancellationException) {
+                                        } catch (ce: CancellationException) {
                                             iterator.remove()
                                             log.warn("unable to route message to ${current.key}: job cancelled")
                                             log.catching(ce)
                                             log.info("route \'${current.key}\' removed")
                                         }
+                                    } else {
+                                        log.info("passage denied for route ${current.key}")
+                                    }
                                 }
                             } else {
-                                log.info("message $it is ignored by mapper")
+                                log.info("message is ignored by mapper")
                             }
                         }
                     } catch (crce : ClosedReceiveChannelException) {
@@ -168,6 +173,7 @@ open class FanOutChannelRouter<T, O> (
     }
 
     override suspend fun newRoute(name : String,
+                                  routeChannelCapacity : Int,
                                   routeChannel : Channel<O>,
                                   passage : (O) -> Boolean) : ChannelRoute<O> {
         val route = ChannelRoute(name, passage, routeChannel)

@@ -107,12 +107,14 @@ open class FanInChannelRouter<I, T> (
                                     mapped = mapper(msg)
                                     if(mapped.isPresent) {
                                         mappedElement = mapped.get()
-                                        log.info("message {$msg}(${msg!!::class.java}) mapped into {$mappedElement}(${mappedElement!!::class.java})")
+                                        log.info("message mapped from (${msg!!::class.java}) into (${mappedElement!!::class.java})")
                                         outChan.send(mappedElement)
-                                        log.info("message $msg forwarded to the out route")
+                                        log.info("message forwarded to the out route")
+                                    } else {
+                                        log.info("message is ignored by mapper")
                                     }
                                 } else {
-                                    log.info("passage denied for \'$msg\' incoming from route \'${route.key}\'")
+                                    log.info("passage denied for incoming from route \'${route.key}\' [msg='$msg']")
                                 }
                             }
                         } catch (crce : ClosedReceiveChannelException) {
@@ -153,6 +155,7 @@ open class FanInChannelRouter<I, T> (
     }
 
     override suspend fun newRoute(name : String,
+                                  routeChannelCapacity : Int,
                                   routeChannel : Channel<I>,
                                   passage : (I) -> Boolean
     ) : ChannelRoute<I> {

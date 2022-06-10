@@ -8,7 +8,8 @@ interface ChannelRouter<T> {
     suspend fun start()
     suspend fun started() : ChannelRouter<T>
     suspend fun newRoute(name : String,
-                         routeChannel : Channel<T> = Channel(),
+                         routeChannelCapacity : Int = 100,
+                         routeChannel : Channel<T> = Channel(routeChannelCapacity),
                          passage : (T) -> Boolean = {true}) : ChannelRoute<T>
     suspend fun getRoute(name : String) : ChannelRoute<T>?
     suspend fun removeRoute(name : String) : ChannelRoute<T>?

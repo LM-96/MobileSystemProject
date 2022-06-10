@@ -4,6 +4,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import it.unibo.kBluez.model.*
 import it.unibo.kBluez.utils.*
+import kotlinx.coroutines.channels.ChannelResult
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
@@ -123,9 +124,24 @@ class PyBluezWrapperReader(
             )
         }
 
-    suspend fun readSocketGetAddressResult()  =
-        readWhileJsonObjectHasAndMap("sock_address") {
-            Pair(it.get("sock_address").asString, it.get("sock_port").asInt)
+    suspend fun readSocketGetLocalAddressResult()  =
+        readWhileJsonObjectHasAndMap("sock_local_address") {
+            Pair(it.get("sock_local_address").asString, it.get("sock_local_port").asInt)
+        }
+
+    suspend fun readSocketGetRemoteAddressResult()  =
+        readWhileJsonObjectHasAndMap("sock_remote_address") {
+            Pair(it.get("sock_remote_address").asString, it.get("sock_remote_port").asInt)
+        }
+
+    suspend fun readSocketAdvertiseServiceResult() =
+        readWhileJsonObjectHasAndMap("advertise_service_res") {
+            it.get("advertise_service_res").asString
+        }
+
+    suspend fun readSocketStopAdvertisingResult() =
+        readWhileJsonObjectHasAndMap("stop_asdvertising_res") {
+            it.get("stop_asdvertising_res").asString
         }
 
 
@@ -138,7 +154,10 @@ class PyBluezWrapperReader(
         var jsonEl : JsonElement
         var jsonObj : JsonObject
         var res : T? = null
-        checkErrors() //consume some remaining errors
+        var errs = checkErrors()
+        if(errs != null)
+            throw PyBluezWrapperException(errs)
+            //consume some remaining errors
 
         while(res == null) {
 
@@ -158,19 +177,29 @@ class PyBluezWrapperReader(
         return res!!
     }
 
-    suspend fun checkErrors() : String? {
-        val errs : String?
+    fun checkErrors() : String? {
+        return pErr.tryReceive().getOrNull()?.parseErrors()
+    }
 
-        if(pErr.isEmpty) {
-            return null
-        }
+    fun checkAllErrors() : List<String> {
+        var receiveRes : ChannelResult<JsonObject>
+        val res = mutableListOf<String>()
+        do {
+            receiveRes = pErr.tryReceive()
+            if(receiveRes.isSuccess)
+                res.add(receiveRes.getOrNull()!!.parseErrors())
+        } while (receiveRes.isSuccess)
 
-        return parseJErrors(pErr.receive())
+        return res
     }
 
     suspend fun skipRemaining() {
         while(!pIn.isEmpty)
             pIn.receive()
+    }
+
+    private fun JsonObject.parseErrors() : String {
+        return parseJErrors(this)
     }
 
     private fun parseJErrors(jsonObj: JsonObject) : String {

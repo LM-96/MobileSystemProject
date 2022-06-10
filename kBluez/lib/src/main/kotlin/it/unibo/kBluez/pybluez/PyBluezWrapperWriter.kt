@@ -112,6 +112,11 @@ class PyBluezWrapperWriter(
         )
     }
 
+    suspend fun writeSocketStopAdvertising(uuid: String) {
+        writeCommand(Commands.SOCKET_STOP_ADVERTISING_CMD, "sock_uuid" to uuid
+        )
+    }
+
     suspend fun writeSocketStopAdvertisingCommand(uuid : String) {
         writeCommand(Commands.SOCKET_STOP_ADVERTISING_CMD, "sock_uuid" to uuid)
     }

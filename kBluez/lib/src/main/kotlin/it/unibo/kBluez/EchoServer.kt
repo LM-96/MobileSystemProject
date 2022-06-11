@@ -1,11 +1,7 @@
 package it.unibo.kBluez
 
 import it.unibo.kBluez.model.BluetoothServiceProtocol
-import it.unibo.kBluez.pybluez.PyBluezWrapperException
-import it.unibo.kBluez.pybluez.PyKBluez
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 
 val tt = "\t\t###### MAIN | "
 
@@ -14,8 +10,17 @@ fun printTt(line : String) {
 }
 
 fun main(args : Array<String>) {
+    /*Runtime.getRuntime().addShutdownHook(object : Thread() {
+        override fun run() {
+            KBLUEZ.close()
+        }
+    })*/
     runBlocking {
-        val serverSock = PyKBluez.newBluetoothSocket(BluetoothServiceProtocol.RFCOMM)
+        /*Runtime.getRuntime().addShutdownHook(thread {
+            this.cancel("Shutdown Hook")
+        })*/
+
+        val serverSock = newBluetoothSocket(BluetoothServiceProtocol.RFCOMM)
         printTt("created server socket")
 
         serverSock.bind()
@@ -31,21 +36,24 @@ fun main(args : Array<String>) {
         serverSock.advertiseService("Echo Server", serviceUuid)
         printTt("advertise ok")
 
-        try {
-            while (true) {
-                printTt("accept cycle")
-                serverSock.asyncAccept(this) {
+        serverSock.asyncAcceptAll(this) {
+            printTt("Accepted connection with ${it.getLocalHost()}:${it.getLocalPort()}")
+            printTt("Active actors : ${KBLUEZ.activeActors()}")
+            printTt("Active threads : ${Thread.activeCount()}")
+            withAcceptedSocket {
+                var received : String
+                var working = true
+                while (working && isActive) {
                     try {
-                        while(true) {
-                            send(receive())
-                        }
-                    } catch (_ : PyBluezWrapperException) {
-                        //simply exit
+                        received = this.receive().decodeToString()
+                        printTt("Socket[${getLocalHost()}:${getLocalPort()}] received data: $received")
+                        send(received.toByteArray())
+                    } catch (e : Exception) {
+                        working = false
                     }
                 }
             }
-        } catch (_ : PyBluezWrapperException) {
-            println("Closed")
         }
+        this.cancel()
     }
 }

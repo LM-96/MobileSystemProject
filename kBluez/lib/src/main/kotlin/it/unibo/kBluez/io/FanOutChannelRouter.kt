@@ -106,17 +106,17 @@ open class FanOutChannelRouter<T, O> (
                             mapped = mapper(it)
                             if(mapped.isPresent) {
                                 mappedElement = mapped.get()
-                                log.info("message mapped from (${it!!::class.java}) into (${mappedElement!!::class.java})")
+                                //log.info("message mapped from (${it!!::class.java}) into (${mappedElement!!::class.java})")
                                 iterator = routes.iterator()
                                 while(iterator.hasNext()) {
                                     current = iterator.next()
-                                    log.info("checking route ${current.key}")
+                                    //log.info("checking route ${current.key}")
                                     if(current.value.passage(mappedElement)) {
                                         try {
-                                            log.info("passage open for route ${current.key}")
+                                            //log.info("passage open for route ${current.key}")
                                             chanRes = current.value.channel.trySend(mappedElement)
-                                            if(chanRes.isSuccess) log.info("message routed to ${current.key}")
-                                            else if(chanRes.isFailure) log.info("unable to send message to ${current.key}")
+                                            if(chanRes.isSuccess) //log.info("message routed to ${current.key}")
+                                            else if(chanRes.isFailure) //log.info("unable to send message to ${current.key}")
                                             else chanRes.getOrThrow()
                                         } catch (csce: ClosedSendChannelException) {
                                             log.warn("unable to route message to ${current.key}: channel closed")
@@ -130,7 +130,7 @@ open class FanOutChannelRouter<T, O> (
                                             log.info("route \'${current.key}\' removed")
                                         }
                                     } else {
-                                        log.info("passage denied for route ${current.key}")
+                                        //log.info("passage denied for route ${current.key}")
                                     }
                                 }
                             } else {

@@ -27,10 +27,10 @@ class BufferedReaderChannelWrapper(
         try {
             do{
                 line = reader.readLine()
-                IO_LOG.info("readed line from BufferedReader: $line")
+                //IO_LOG.info("readed line from BufferedReader: $line")
                 if(line != null) {
                     channel.send(line)
-                    IO_LOG.info("line [$line] sent to channel")
+                    //IO_LOG.info("line [$line] sent to channel")
                 }
             } while (line != null)
         } catch (ioe : IOException) {
@@ -78,7 +78,7 @@ class BufferedReaderFlowWrapper(
         try {
             do{
                 line = reader.readLine()
-                IO_LOG.info("flowed line: $line")
+                //IO_LOG.info("flowed line: $line")
                 if(line != null) {
                     internalFlow.emit(line)
                 }
@@ -107,7 +107,7 @@ class BufferedReaderFlowWrapperMapper<O>(
         try {
             do{
                 line = reader.readLine()
-                IO_LOG.info("flowed line: $line")
+                //IO_LOG.info("flowed line: $line")
                 if(line != null) {
                     internalFlow.emit(mapper(line))
                 }
@@ -135,11 +135,11 @@ class OutputStreamStringChannelWrapper(
         try {
             while(true) {
                 line = channel.receive()
-                IO_LOG.info("received line from channel: $line")
+                //IO_LOG.info("received line from channel: $line")
                 writer.write("${line.trim()}\n")
                 //writer.newLine()
                 writer.flush()
-                IO_LOG.info("written line [$line] to BufferedWriter")
+                //IO_LOG.info("written line [$line] to BufferedWriter")
             }
         } catch (crce : ClosedReceiveChannelException) {
             IO_LOG.info("receive channel is closed")

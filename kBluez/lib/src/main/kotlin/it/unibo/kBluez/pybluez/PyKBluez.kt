@@ -9,6 +9,7 @@ import it.unibo.kBluez.model.BluetoothLookupResult
 import it.unibo.kBluez.model.BluetoothService
 import it.unibo.kBluez.model.BluetoothServiceProtocol
 import it.unibo.kBluez.socket.BluetoothSocket
+import it.unibo.kBluez.utils.*
 import kotlinx.coroutines.*
 import mu.KLogger
 import mu.KotlinLogging
@@ -38,10 +39,6 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
             PY_BLUEZ_WR_EXECUTABLE = createTempFile("pybluezwrapper.", ".py")
             Files.copy(resource, PY_BLUEZ_WR_EXECUTABLE, StandardCopyOption.REPLACE_EXISTING)
         }
-
-        suspend fun newBluetoothSocket(protocol: BluetoothServiceProtocol) : BluetoothSocket {
-            return PyKBluez().requestNewSocket(protocol)
-        }
     }
 
     private lateinit var process : Process
@@ -59,18 +56,56 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         }
     }
 
+    private fun prepareProcess() : Process {
+        val os = getOS()
+        LOG.info("OS: $os")
+        if(os != null) {
+            when(os) {
+                OS.LINUX -> {
+                    LOG.info("Preparing linux")
+
+                    LOG.info("Restarting bluetooth...")
+                    val restartBluetoothProc = ProcessBuilder()
+                        .inheritIO()
+                        .command("sudo", "systemctl", "restart", "bluetooth")
+                        .start()
+                    restartBluetoothProc.waitFor()
+                    LOG.info("Terminated with exit code ${restartBluetoothProc.exitValue()}")
+
+                    LOG.info("Enabling \"Enable Page and Inquiry scan\"...")
+                    val enPgInqProc = ProcessBuilder()
+                        .inheritIO()
+                        .command("sudo", "hciconfig", "hciX", "piscan")
+                        .start()
+                    enPgInqProc.waitFor()
+                    LOG.info("Terminated with exit code ${enPgInqProc.exitValue()}")
+
+                    return ProcessBuilder("sudo", "python",
+                        PY_BLUEZ_WR_EXECUTABLE.absolutePathString()).start()
+                }
+                else -> {
+                    return ProcessBuilder("python",
+                        PY_BLUEZ_WR_EXECUTABLE.absolutePathString()).start()
+                }
+            }
+        }
+
+        throw PyBluezWrapperException("unable to start process")
+    }
+
     @Throws(PyBluezWrapperException::class)
     private suspend fun startProcess() {
         if(started) {
-            pErrRouter.close()
-            pInRouter.close()
-            input.close()
-            output.close()
+            withContext(Dispatchers.IO) {
+                pErrRouter.close()
+                pInRouter.close()
+                input.close()
+                output.close()
+            }
         }
 
         try {
-            process = ProcessBuilder("python",
-                PY_BLUEZ_WR_EXECUTABLE.absolutePathString()).start()
+            process = prepareProcess()
         } catch (e : Exception) {
             LOG.catching(e)
             throw PyBluezWrapperException("Unable to start python wrapper: ${e.localizedMessage}")
@@ -86,7 +121,6 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
                 Optional.empty<JsonObject>()
             }
         }
-        pInRouter.started()
 
         pErrRouter = process.errorStream.newFanOutMappedStringRouter(scope, "pErr") {
             try {
@@ -95,17 +129,15 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
                 Optional.empty<JsonObject>()
             }
         }
-        pErrRouter.started()
 
         pOutRouter = process.outputStream.newFanInMappedStringRouter<JsonObject>(scope, "pOut") {
             Optional.of(it.toString())
         }
-        pOutRouter.started()
 
         input = PyBluezWrapperReader(
             pInRouter.newRoute("pykbluez-main-p-stdin",
                 passage = allowedKeyFilterPassage(STATE_KEY, SCAN_RES_KEY, LOOKUP_RES_KEY, FIND_SERVICES_RES_KEY,
-                    NEW_SOCKET_UUID)
+                    NEW_SOCKET_UUID, ACTIVE_ACTORS_RES_KEY)
             ).channel,
             pErrRouter.newRoute("pykbluez-main-p-stderr",
                 passage = allowedKeyStringFilterPassage("source", "main")
@@ -114,6 +146,10 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         output = PyBluezWrapperWriter(
             pOutRouter.newRoute("pykbluez-main-p-stdout").channel,
             scope)
+
+        pInRouter.start()
+        pOutRouter.start()
+        pErrRouter.start()
 
         log.info("waiting for IDLE state")
         ensureState(PyBluezWrapperState.IDLE)
@@ -197,6 +233,20 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
         return instantiateSocket(uuid, protocol)
     }
 
+    override suspend fun getAvailablePort(protocol: BluetoothServiceProtocol): Int {
+        log.info("getting available port for $protocol")
+        ensureRunning()
+        input.skipRemaining()
+
+        output.writeGetAvailablePortCommand(protocol)
+        input.ensureState(PyBluezWrapperState.GETTING_AVAILABLE_PORT)
+        val port = input.readGetAvailablePort()
+        log.info("received available port : $port")
+        input.ensureState(PyBluezWrapperState.IDLE)
+
+        return port
+    }
+
     internal suspend fun instantiateSocket(uuid : String,
                                            protocol : BluetoothServiceProtocol
     ) : BluetoothSocket {
@@ -241,6 +291,20 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
 
         return PyBluezSocket(uuid, protocol, this, PyBluezWrapperReader(sockIn, sockErr),
             PyBluezWrapperWriter(sockOut))
+    }
+
+    suspend fun activeActors() : Int {
+        log.info("getting active actors... ")
+        ensureRunning()
+        input.skipRemaining()
+
+        output.writeGetActiveActorsCommand()
+        input.ensureState(PyBluezWrapperState.GETTING_ACTIVE_ACTORS)
+        var res = input.readGetActiveActorsRes()
+        log.info("active actors: $res")
+        input.ensureState(PyBluezWrapperState.IDLE)
+
+        return res
     }
 
     @Throws(PyBluezWrapperException::class)

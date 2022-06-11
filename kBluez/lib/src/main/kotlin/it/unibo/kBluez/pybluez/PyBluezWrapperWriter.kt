@@ -46,6 +46,10 @@ class PyBluezWrapperWriter(
         writeCommand(Commands.NEW_SOCKET_CMD, "protocol" to protocol.name)
     }
 
+    suspend fun writeGetAvailablePortCommand(protocol: BluetoothServiceProtocol) {
+        writeCommand(Commands.GET_AVAILABLE_PORT, "protocol" to protocol.name)
+    }
+
     suspend fun writeSocketBindCommand(uuid : String, port : Int?) {
         if(port != null)
             writeCommand(Commands.SOCKET_BIND_CMD, "sock_uuid" to uuid,
@@ -90,8 +94,12 @@ class PyBluezWrapperWriter(
 
         writeCommand(Commands.SOCKET_SEND_CMD, "sock_uuid" to uuid,
             "data" to String(
-                data.sliceArray(offset..(offset+length)), StandardCharsets.UTF_8)
+                data.sliceArray(offset until offset+length), StandardCharsets.UTF_8)
         )
+    }
+
+    suspend fun writeGetActiveActorsCommand() {
+        writeCommand(Commands.GET_ACTIVE_ACTORS)
     }
 
     suspend fun writeSocketSetL2CapMtuCommand(uuid: String, mtu : Int) {

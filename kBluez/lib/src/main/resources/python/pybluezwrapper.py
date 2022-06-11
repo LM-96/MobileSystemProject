@@ -1,5 +1,4 @@
 #! /usr/bin/python3
-from audioop import add
 import string
 import traceback
 import json
@@ -44,7 +43,7 @@ try:
                 print(json.dumps(message), file=self.stdOut)
                 self.stdOut.flush()
             except Exception as E:
-                print_err(traceback.format_exc(), file=self.stdOut)
+                print_err("OutActor", traceback.format_exc())
                 self.stdOut.flush()
 
     outActor = None
@@ -121,37 +120,36 @@ try:
         def sock_accept(self):
             try:
                 client_sock, client_addr = self.sock.accept()
-                res = self.manager_proxy.new_bt_socket_actor(client_sock)
-                uuid_str = res.get()
-                print_dict({"sock_uuid":self.uuid_str, "accept_res":uuid_str, "accept_res_address":client_addr})
+                uuid_str = bluetooth_manager_proxy.new_bt_socket_actor(client_sock, self.sock_proto).get()
+                print_dict({"sock_uuid":self.uuid_str, "accept_res":uuid_str, "accept_res_address":client_addr[0], "accept_res_port":client_addr[1]})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
         def sock_send(self, data):
             try:
                 self.sock.send(data.encode('utf-8'))
-                print_dict({"sock_uuid":uuid, "sent_res":"executed"})
+                print_dict({"sock_uuid":self.uuid_str, "sent_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
         def sock_receive(self, buffsize : int):
             try:
                 data = self.sock.recv(buffsize)
-                print_dict({"sock_uuid":uuid, "receive_res":data.decode('utf-8'), "size" : len(data)})
+                print_dict({"sock_uuid":self.uuid_str, "receive_res":data.decode('utf-8'), "size" : len(data)})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
         def sock_close(self):
             try:
                 data = self.sock.close()
-                print_dict({"sock_uuid":uuid, "close_res":"executed"})
+                print_dict({"sock_uuid":self.uuid_str, "close_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
         def sock_shutdown(self):
             try:
                 self.sock.shutdown()
-                print_dict({"sock_uuid":uuid, "shutdown_res":"executed"})
+                print_dict({"sock_uuid":self.uuid_str, "shutdown_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
@@ -160,19 +158,19 @@ try:
                 print_err(self.name, "unable to set L2CAP MTU to a " + self.sock_proto + " socket")
             else:
                 bluetooth.set_l2cap_mtu(self.sock, value)
-                print_dict({"sock_uuid":uuid, "set_l2cap_mtu":"executed"})
+                print_dict({"sock_uuid":self.uuid_str, "set_l2cap_mtu":"executed"})
 
         def sock_advertise_service(self, service_name : string, service_uuid : string):
             try:
                 bluetooth.advertise_service(self.sock, service_name, service_uuid)
-                print_dict({"sock_uuid":uuid, "advertise_service_res":"executed"})
+                print_dict({"sock_uuid":self.uuid_str, "advertise_service_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
         def sock_stop_advertising(self):
             try:
                 bluetooth.stop_advertising(self.sock)
-                print_dict({"sock_uuid":uuid, "stop_asdvertising_res":"executed"})
+                print_dict({"sock_uuid":self.uuid_str, "stop_asdvertising_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
 
@@ -229,19 +227,37 @@ try:
         print_dict({"find_services_res" : bluetooth.find_service(name, uuid, address)})
 
     def new_sock(msg):
-        updateState("CREATING_SOCKET")
-        protocol = msg["protocol"]
-        if(protocol == "RFCOMM"):
-            sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        elif(protocol == "L2CAP"):
-            sock = bluetooth.BluetoothSocket(bluetooth.L2CAP)
-        else:
-            print_err("main", "socket protocol not supported")
-            return
+        try:
+            updateState("CREATING_SOCKET")
+            protocol = msg["protocol"]
+            if(protocol == "RFCOMM"):
+                sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+            elif(protocol == "L2CAP"):
+                sock = bluetooth.BluetoothSocket(bluetooth.L2CAP)
+            else:
+                print_err("main", "socket protocol not supported")
+                return
 
-        uuid_str = bluetooth_manager_proxy.new_bt_socket_actor(sock, protocol).get()
-        print_dict({"new_socket_uuid":uuid_str})
-        
+            uuid_str = bluetooth_manager_proxy.new_bt_socket_actor(sock, protocol).get()
+            print_dict({"new_socket_uuid":uuid_str})
+        except Exception:
+            print_err("main", traceback.format_exc())
+
+    def get_available_port(msg):
+        try:
+            updateState("GETTING_AVAILABLE_PORT")
+            protocol = msg["protocol"]
+            if(protocol == "RFCOMM"):
+                port = bluetooth.get_available_port(bluetooth.RFCOMM)
+            elif(protocol == "L2CAP"):
+                sock = bluetooth.get_available_port(bluetooth.L2CAP)
+            else:
+                print_err("main", "socket protocol not supported")
+                return
+
+            print_dict({"available_port":port})
+        except Exception:
+            print_err("main", traceback.format_exc())
 
     def a_sock_bind(msg):
         #updateState("BINDING_SOCKET")
@@ -343,6 +359,11 @@ try:
         except Exception:
             print_err("sock_uuid_" + msg["sock_uuid"], traceback.format_exc())
 
+    def get_active_actors():
+        updateState("GETTING_ACTIVE_ACTORS")
+        actors = pykka.ActorRegistry.get_all()
+        print_dict({"active_actors_res":str(len(actors))})
+
 
     def terminate():
         pykka.ActorRegistry.stop_all(True)
@@ -378,6 +399,9 @@ try:
 
                 elif(cmd == "sock_new"):
                     new_sock(msg)
+
+                elif(cmd == "get_available_port"):
+                    get_available_port(msg)
 
                 elif(cmd == "sock_bind"):
                     a_sock_bind(msg)
@@ -418,6 +442,9 @@ try:
                 elif(cmd == "sock_get_remote_address"):
                     a_sock_get_remote_address(msg)
 
+                elif(cmd == "get_active_actors"):
+                    get_active_actors()
+
                 else:
                     print_err("main", "unsupported operation")
 
@@ -432,6 +459,6 @@ try:
     except KeyboardInterrupt as _:
         terminate()
     except Exception as e:
-        print_err(traceback.format_exc())
+        print_err("main", traceback.format_exc())
 except:
     print(json.dumps({"source":"main", "err": traceback.format_exc()}), file=sys.stderr)

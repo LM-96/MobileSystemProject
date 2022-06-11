@@ -13,6 +13,14 @@ class PyBluezSocket internal constructor(
     private val writer : PyBluezWrapperWriter
 ) : BluetoothSocket {
 
+    init {
+        Runtime.getRuntime().addShutdownHook(object : Thread() {
+            override fun run() {
+                this@PyBluezSocket.close()
+            }
+        })
+    }
+
     private val log = KotlinLogging.logger("${javaClass.simpleName}_$uuid")
 
     override suspend fun getLocalHost(): String? {

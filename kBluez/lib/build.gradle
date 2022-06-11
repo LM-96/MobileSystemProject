@@ -37,6 +37,11 @@ dependencies {
     // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-reflect
     implementation group: 'org.jetbrains.kotlin', name: 'kotlin-reflect', version: "$kotlinVer"
 
+    /* KOTLIN MULTIPLATFORM ************************************************************* */
+    // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-native-utils
+    implementation group: 'org.jetbrains.kotlin', name: 'kotlin-native-utils', version: "$kotlinVer"
+
+
     /* COROUTINES *********************************************************************** */
     // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core
     implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core', version: "$coroutineVer", ext: 'pom'

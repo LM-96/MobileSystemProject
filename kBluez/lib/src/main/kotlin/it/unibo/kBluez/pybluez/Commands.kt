@@ -20,6 +20,8 @@ object Commands {
     const val SOCKET_SET_L2CAP_MTU_CMD = "sock_set_l2cap_mtu"
     const val SOCKET_ADVERTISE_SERVICE_CMD = "sock_advertise_service"
     const val SOCKET_STOP_ADVERTISING_CMD = "sock_stop_advertising"
+    const val GET_AVAILABLE_PORT = "get_available_port"
+    const val GET_ACTIVE_ACTORS = "get_active_actors"
 
 
 }

@@ -104,11 +104,16 @@ class PyBluezWrapperReader(
         }
 
     suspend fun readSocketReceive() : ByteArray =
-        readWhileJsonObjectHasAndMap("received_data") {
-            it.get("received_data").asString
+        readWhileJsonObjectHasAndMap("receive_res") {
+            it.get("receive_res").asString
             .substring(0, it.get("size").asInt)
             .toByteArray(StandardCharsets.UTF_8)
     }
+
+    suspend fun readGetActiveActorsRes() : Int =
+        readWhileJsonObjectHasAndMap("active_actors_res") {
+            it.get("active_actors_res").asString.toInt()
+        }
 
 
     suspend fun readNewSocketUUID() : String =
@@ -117,10 +122,11 @@ class PyBluezWrapperReader(
         }
 
     suspend fun readSocketAcceptResult() :
-            Pair<String, String> =
+            Triple<String, String, Int> =
         readWhileJsonObjectHasAndMap("accept_res") {
-            Pair(it.get("accept_res").asString,
-                it.get("accept_res_address").asString
+            Triple(it.get("accept_res").asString,
+                it.get("accept_res_address").asString,
+                it.get("accept_res_port").asInt
             )
         }
 
@@ -134,14 +140,19 @@ class PyBluezWrapperReader(
             Pair(it.get("sock_remote_address").asString, it.get("sock_remote_port").asInt)
         }
 
-    suspend fun readSocketAdvertiseServiceResult() =
+    suspend fun readSocketAdvertiseServiceResult() : String =
         readWhileJsonObjectHasAndMap("advertise_service_res") {
             it.get("advertise_service_res").asString
         }
 
-    suspend fun readSocketStopAdvertisingResult() =
+    suspend fun readSocketStopAdvertisingResult() : String =
         readWhileJsonObjectHasAndMap("stop_asdvertising_res") {
             it.get("stop_asdvertising_res").asString
+        }
+
+    suspend fun readGetAvailablePort() : Int =
+        readWhileJsonObjectHasAndMap("available_port") {
+            it.get("available_port").asString.toInt()
         }
 
 
@@ -161,7 +172,7 @@ class PyBluezWrapperReader(
 
         while(res == null) {
 
-            select<Unit> {
+            select {
                 pIn.onReceive { jsonObj ->
                     if(jsonObj.has(key)) {
                         res = mapper(jsonObj)

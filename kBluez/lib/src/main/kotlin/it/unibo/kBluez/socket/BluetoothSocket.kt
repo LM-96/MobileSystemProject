@@ -1,10 +1,7 @@
 package it.unibo.kBluez.socket
 
 import it.unibo.kBluez.model.BluetoothServiceProtocol
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import java.io.Closeable
 import kotlin.coroutines.coroutineContext
 
@@ -37,6 +34,22 @@ interface BluetoothSocket : Closeable, AutoCloseable {
         return accepted
     }
 
+    suspend fun asyncAcceptAll(scope : CoroutineScope, afterAccept : suspend AcceptContinuation.(BluetoothSocket) -> Unit) {
+        while(scope.isActive) {
+            val accepted = AcceptContinuation(accept(), scope)
+            accepted.afterAccept(this)
+        }
+    }
 
+}
 
+class AcceptContinuation(private val acceptedSocket : BluetoothSocket,
+                         private val scope : CoroutineScope
+) {
+    suspend fun withAcceptedSocket(block : suspend BluetoothSocket.() -> Unit) : BluetoothSocket {
+        scope.launch {
+            acceptedSocket.block()
+        }
+        return acceptedSocket
+    }
 }

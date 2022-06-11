@@ -107,11 +107,11 @@ open class FanInChannelRouter<I, T> (
                                     mapped = mapper(msg)
                                     if(mapped.isPresent) {
                                         mappedElement = mapped.get()
-                                        log.info("message mapped from (${msg!!::class.java}) into (${mappedElement!!::class.java})")
+                                        //log.info("message mapped from (${msg!!::class.java}) into (${mappedElement!!::class.java})")
                                         outChan.send(mappedElement)
                                         log.info("message forwarded to the out route")
                                     } else {
-                                        log.info("message is ignored by mapper")
+                                        //log.info("message is ignored by mapper")
                                     }
                                 } else {
                                     log.info("passage denied for incoming from route \'${route.key}\' [msg='$msg']")

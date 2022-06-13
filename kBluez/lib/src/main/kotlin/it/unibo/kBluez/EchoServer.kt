@@ -1,20 +1,11 @@
 package it.unibo.kBluez
 
 import it.unibo.kBluez.model.BluetoothServiceProtocol
+import it.unibo.kBluez.utils.printTt
 import kotlinx.coroutines.*
-
-val tt = "\t\t###### MAIN | "
-
-fun printTt(line : String) {
-    println("$tt $line")
-}
+import kotlin.concurrent.thread
 
 fun main(args : Array<String>) {
-    /*Runtime.getRuntime().addShutdownHook(object : Thread() {
-        override fun run() {
-            KBLUEZ.close()
-        }
-    })*/
     runBlocking {
         /*Runtime.getRuntime().addShutdownHook(thread {
             this.cancel("Shutdown Hook")
@@ -36,7 +27,7 @@ fun main(args : Array<String>) {
         serverSock.advertiseService("Echo Server", serviceUuid)
         printTt("advertise ok")
 
-        serverSock.asyncAcceptAll(this) {
+        serverSock.acceptAndLaunchCycle(this) {
             printTt("Accepted connection with ${it.getLocalHost()}:${it.getLocalPort()}")
             printTt("Active actors : ${KBLUEZ.activeActors()}")
             printTt("Active threads : ${Thread.activeCount()}")

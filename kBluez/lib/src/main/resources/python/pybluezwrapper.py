@@ -1,14 +1,13 @@
 #! /usr/bin/python3
-import string
-import traceback
-import json
-import sys
-from typing import Dict
-import uuid
-import pykka
-import bluetooth
-
 try:
+    import string
+    import traceback
+    import json
+    import sys
+    from typing import Dict
+    import uuid
+    import pykka
+    import bluetooth
     # ** ERROR HANDLING ************************************************************************** #
     class ErrActor(pykka.ThreadingActor):
         def __init__(self, stdErr):
@@ -162,7 +161,7 @@ try:
 
         def sock_advertise_service(self, service_name : string, service_uuid : string):
             try:
-                bluetooth.advertise_service(self.sock, service_name, service_uuid)
+                bluetooth.advertise_service(self.sock, service_name, service_id = service_uuid, service_classes=[service_uuid, bluetooth.SERIAL_PORT_CLASS], profiles=[bluetooth.SERIAL_PORT_PROFILE])
                 print_dict({"sock_uuid":self.uuid_str, "advertise_service_res":"executed"})
             except Exception:
                 print_err(self.name, traceback.format_exc())
@@ -184,7 +183,7 @@ try:
         def new_bt_socket_actor(self, sock, sock_proto: string):
             uuid_str = str(uuid.uuid4())            
             actor = BluetoothSocketActor.start(uuid_str, sock, sock_proto, self)
-            self.socket_actors[uuid_str] = {"actor":actor,"proxy":actor.proxy()}
+            self.socket_actors[uuid_str] = {"actor":actor,"proxy":actor.proxy(),"sock":sock}
             return uuid_str
 
         def get_proxy(self, uuid_str):
@@ -194,8 +193,14 @@ try:
             return self.socket_actors[uuid_str]["actor"]
         
         def stop_bt_socket_actor(self, uuid_str):
+            self.socket_actors[uuid_str]["sock"].close()
             self.socket_actors[uuid_str]["actor"].stop(True)
             del self.socket_actors[uuid_str]
+
+        def close_all_sockets(self):
+            for uuid_str in self.socket_actors:
+                self.socket_actors[uuid_str]["sock"].close()
+            return True
 
     bluetooth_manager_actor = BluetoothSocketActorManager.start()
     bluetooth_manager_proxy = bluetooth_manager_actor.proxy()
@@ -366,8 +371,14 @@ try:
 
 
     def terminate():
-        pykka.ActorRegistry.stop_all(True)
-        print(json.dumps({"state":"TERMINATED"}))
+        try:
+            bluetooth_manager_proxy.close_all_sockets().get()
+            pykka.ActorRegistry.stop_all(True)
+            print(json.dumps({"state":"TERMINATED"}))
+        except:
+            print(json.dumps({"source":"main", "err": traceback.format_exc()}), file=sys.stderr)
+
+
 
     try:
         hasToTerminate = False
@@ -460,5 +471,7 @@ try:
         terminate()
     except Exception as e:
         print_err("main", traceback.format_exc())
+except KeyboardInterrupt as _:
+    terminate()
 except:
     print(json.dumps({"source":"main", "err": traceback.format_exc()}), file=sys.stderr)

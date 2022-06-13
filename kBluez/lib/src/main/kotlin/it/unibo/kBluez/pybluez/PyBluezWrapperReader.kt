@@ -89,8 +89,8 @@ class PyBluezWrapperReader(
         }
 
     suspend fun readSocketSendResponse() : String =
-        readWhileJsonObjectHasAndMap("send_res") {
-            it.get("send_res").asString
+        readWhileJsonObjectHasAndMap("sent_res") {
+            it.get("sent_res").asString
         }
 
     suspend fun readSocketShutdownResponse() : String =

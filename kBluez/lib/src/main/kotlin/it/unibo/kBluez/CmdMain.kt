@@ -1,6 +1,5 @@
 package it.unibo.kBluez
 
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import java.util.UUID

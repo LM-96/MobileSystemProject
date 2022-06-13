@@ -1,0 +1,1 @@
+{"bridge_name":"echo-bridge","bluetooth_service_name": "Echo Server", "bluetooth_service_uuid" : "f8fb1e57-f72f-4098-9b66-61865cb5fd9f",  "bluetooth_protocol" : "RFCOMM","net_host_address" :  "localhost", "net_protocol" :  "TCP", "net_host_port": 9999}

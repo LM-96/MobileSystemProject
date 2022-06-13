@@ -2,6 +2,7 @@ package it.unibo.kBluez.pybluez
 
 import it.unibo.kBluez.model.BluetoothServiceProtocol
 import it.unibo.kBluez.socket.BluetoothSocket
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import mu.KotlinLogging
 
@@ -142,10 +143,12 @@ class PyBluezSocket internal constructor(
 
     override fun close() {
         runBlocking {
-            log.info("closing...")
-            writer.writeSocketCloseCommand(uuid)
-            val res = reader.readSocketCloseResponse()
-            log.info("close result: $res")
+            val closeJob = launch {
+                log.info("closing...")
+                writer.writeSocketCloseCommand(uuid)
+                log.info("sent closed command")
+            }
+
         }
     }
 

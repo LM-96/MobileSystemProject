@@ -80,6 +80,12 @@ class PyKBluez(private val scope : CoroutineScope = GlobalScope) :
                     enPgInqProc.waitFor()
                     LOG.info("Terminated with exit code ${enPgInqProc.exitValue()}")
 
+                    val addrReadProc = ProcessBuilder()
+                        .inheritIO()
+                        .command("sudo", "hciconfig", "-a")
+                        .start()
+                    addrReadProc.waitFor()
+
                     return ProcessBuilder("sudo", "python",
                         PY_BLUEZ_WR_EXECUTABLE.absolutePathString()).start()
                 }

@@ -82,12 +82,13 @@ class BluetoothBridge(
                             log.info("accepted connection at \"${it.getRemoteHost()}:${it.getRemotePort()}\"")
                             if(netProtocol == NetworkProtocol.TCP) {
                                 try {
+                                    log.info("creating tcp connection with [host=$host, port=$port]")
                                     netSocket = aSocket(selectorMgr)
                                         .tcp().connect(host, port)
                                     log.info("created TCP connection with context")
                                     connection = BridgeConnection(
                                         "${it.getRemoteHost()}:${it.getRemotePort()}",
-                                        it, netSocket.openWriteChannel(true),
+                                        it, netSocket,
                                         coroutineScope
                                     )
                                     log.info("bridge connection configured")

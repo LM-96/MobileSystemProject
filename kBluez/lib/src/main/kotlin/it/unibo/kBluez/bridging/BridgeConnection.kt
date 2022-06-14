@@ -21,7 +21,7 @@ class BridgeConnection(
 
     suspend fun start() {
         bluetoothToInet = coroutineScope.launch {
-            val netOut = netSocket.openWriteChannel()
+            val netOut = netSocket.openWriteChannel(true)
 
             var finished = false
             var received : ByteArray
@@ -30,7 +30,7 @@ class BridgeConnection(
                 try {
                     received = bluetoothSocket.receive()
                     log.info("received ${received.size} bytes from bluetooth")
-                    netOut.writeFully(received)
+                    netOut.writeStringUtf8("${received.decodeToString()}\n")
                     log.info("bytes sent to net socket")
                 } catch (e : Exception) {
                     finished = true

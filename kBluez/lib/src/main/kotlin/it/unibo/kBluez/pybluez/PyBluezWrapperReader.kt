@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
 import mu.KotlinLogging
 import java.io.Closeable
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 
 class PyBluezWrapperReader(
@@ -172,7 +173,8 @@ class PyBluezWrapperReader(
 
         while(res == null) {
 
-            select {
+            var exception : Exception? = null
+            select<Unit> {
                 pIn.onReceive { jsonObj ->
                     if(jsonObj.has(key)) {
                         res = mapper(jsonObj)
@@ -180,12 +182,24 @@ class PyBluezWrapperReader(
                 }
 
                 pErr.onReceive {
-                    throw PyBluezWrapperException("\n${parseJErrors(it).addLevelTab(2)}")
+                    exception = errorStringToException("\n${parseJErrors(it).addLevelTab(2)}")
                 }
             }
+            if(exception != null) {
+                throw exception!!
+            }
+
 
         }
         return res!!
+    }
+
+    private fun errorStringToException(string : String) : Exception {
+        return if(string.contains("BluetoothError")) {
+            IOException(string)
+        } else {
+            PyBluezWrapperException(string)
+        }
     }
 
     fun checkErrors() : String? {

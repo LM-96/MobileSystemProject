@@ -115,8 +115,8 @@ open class FanOutChannelRouter<T, O> (
                                         try {
                                             //log.info("passage open for route ${current.key}")
                                             chanRes = current.value.channel.trySend(mappedElement)
-                                            if(chanRes.isSuccess) //log.info("message routed to ${current.key}")
-                                            else if(chanRes.isFailure) //log.info("unable to send message to ${current.key}")
+                                            if(chanRes.isSuccess) log.info("message routed to ${current.key}")
+                                            else if(chanRes.isFailure) log.info("unable to send message to ${current.key}")
                                             else chanRes.getOrThrow()
                                         } catch (csce: ClosedSendChannelException) {
                                             log.warn("unable to route message to ${current.key}: channel closed")

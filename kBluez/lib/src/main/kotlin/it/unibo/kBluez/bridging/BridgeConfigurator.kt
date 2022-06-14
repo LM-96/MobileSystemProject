@@ -12,6 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import mu.KotlinLogging
+import java.nio.file.Files
+import java.nio.file.Paths
 
 object BridgeConfigurator {
 
@@ -22,9 +24,16 @@ object BridgeConfigurator {
 
     fun loadBridgesFromJsonFile() : Map<String, BluetoothBridge> {
         val bridgeMap = mutableMapOf<String, BluetoothBridge>()
-
+        var path = Paths.get("./$BRIDGE_JSON_FILE")
         LOG.info("loading bridges...")
-        val jsonLines = javaClass.getResourceAsStream(BRIDGE_JSON_FILE)?.bufferedReader()
+        val jsonLines = if(Files.exists(path)) {
+            LOG.info("bridge loaded from executable path")
+            Files.readAllLines(path)
+        } else {
+            LOG.info("bridge loaded from resources")
+            javaClass.getResourceAsStream("/$BRIDGE_JSON_FILE")?.bufferedReader()?.readLines()
+        }
+        LOG.info("found ${jsonLines?.size ?: "0"} lines to analyze")
         if(jsonLines != null) {
             var bridge : BluetoothBridge
             var bridgeName : String?
@@ -38,7 +47,7 @@ object BridgeConfigurator {
             var netPort : Int?
             var netProtocol : String?
             var jsonObj : JsonObject
-            jsonLines.forEachLine { line ->
+            jsonLines.forEach { line ->
                 try {
                     LOG.info("loading bridge: \"$line\"")
                     jsonObj = JsonParser.parseString(line).asJsonObject
@@ -101,7 +110,7 @@ object BridgeConfigurator {
                         throw IllegalArgumentException("net protocol \'$netProtocol\' does not exitst")
                     }
 
-                    bridge = BluetoothBridge(bridgeName!!, bluetoothPort!!, bluetoothProtocolEnum,
+                    bridge = BluetoothBridge(bridgeName!!, bluetoothPort, bluetoothProtocolEnum,
                         netHost!!, netPort!!, netProcolEnum, bridgeScope, Dispatchers.IO,
                         bluetoothSvcName, bluetoothSvcUuid)
                     LOG.info("created bridge ${bridge.brigeName}")

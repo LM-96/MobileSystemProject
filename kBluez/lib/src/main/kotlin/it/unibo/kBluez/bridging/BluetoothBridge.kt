@@ -16,7 +16,7 @@ class BluetoothBridge(
     val bluetoothServicePort : Int? = null,
     val bluetoothServiceProtocol: BluetoothServiceProtocol,
     val host : String,
-    val port : Int,
+    private val port : Int,
     val netProtocol : NetworkProtocol,
     private val coroutineScope: CoroutineScope,
     private val ioDispatcher : CoroutineDispatcher = Dispatchers.IO,
@@ -126,6 +126,10 @@ class BluetoothBridge(
 
         ackChannel.close()
         return job
+    }
+
+    suspend fun getPort() : Int? {
+        return bluetoothSocket.getLocalPort()
     }
 
     override fun close() {

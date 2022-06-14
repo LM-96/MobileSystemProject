@@ -40,9 +40,11 @@ fun main(args : Array<String>) {
                         printTt("Socket[${getLocalHost()}:${getLocalPort()}] received data: $received")
                         send(received.toByteArray())
                     } catch (e : Exception) {
+                        printTt("Error with opened connection: ${e.localizedMessage}")
                         working = false
                     }
                 }
+                it.close()
             }
         }
         this.cancel()

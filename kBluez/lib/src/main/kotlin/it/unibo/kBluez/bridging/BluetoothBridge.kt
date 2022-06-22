@@ -48,7 +48,6 @@ class BluetoothBridge(
 
             var startOk = false
             var connection : BridgeConnection
-            var netSocket : Socket
 
             try {
                 bluetoothSocket = KBluezFactory
@@ -82,13 +81,10 @@ class BluetoothBridge(
                             log.info("accepted connection at \"${it.getRemoteHost()}:${it.getRemotePort()}\"")
                             if(netProtocol == NetworkProtocol.TCP) {
                                 try {
-                                    log.info("creating tcp connection with [host=$host, port=$port]")
-                                    netSocket = aSocket(selectorMgr)
-                                        .tcp().connect(host, port)
-                                    log.info("created TCP connection with context")
+                                    log.info("creating bridge for tcp connection with [host=$host, port=$port]")
                                     connection = BridgeConnection(
                                         "${it.getRemoteHost()}:${it.getRemotePort()}",
-                                        it, netSocket,
+                                        it, InetSocketAddress(host, port),
                                         coroutineScope
                                     )
                                     log.info("bridge connection configured")
